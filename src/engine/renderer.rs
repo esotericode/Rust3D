@@ -14,6 +14,10 @@ pub struct Renderer {
     world_pipeline: Pipeline,
     ui_pipeline: Pipeline,
     stream: GpuMesh,
+    target: RenderPass,
+    pub size: (u32, u32),
+    present_pipeline: Pipeline,
+    present_bindings: Bindings,
 }
 
 #[repr(C)]
@@ -92,11 +96,50 @@ impl Renderer {
             },
             count: 0,
         };
+        let size = (1280, 720);
+        let (target, color) = make_target(ctx.as_mut(), size);
+        let shader = ctx
+            .new_shader(
+                ShaderSource::Glsl {
+                    vertex: PRESENT_VERTEX,
+                    fragment: PRESENT_FRAGMENT,
+                },
+                ShaderMeta {
+                    images: vec!["image".into()],
+                    uniforms: UniformBlockLayout { uniforms: vec![] },
+                },
+            )
+            .expect("presentation shader");
+        let present_pipeline = ctx.new_pipeline(
+            &[BufferLayout::default()],
+            &[VertexAttribute::new("pos", VertexFormat::Float2)],
+            shader,
+            PipelineParams::default(),
+        );
+        let vertices: [(f32, f32); 4] = [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)];
+        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+        let present_bindings = Bindings {
+            vertex_buffers: vec![ctx.new_buffer(
+                BufferType::VertexBuffer,
+                BufferUsage::Immutable,
+                BufferSource::slice(&vertices),
+            )],
+            index_buffer: ctx.new_buffer(
+                BufferType::IndexBuffer,
+                BufferUsage::Immutable,
+                BufferSource::slice(&indices),
+            ),
+            images: vec![color],
+        };
         Self {
             ctx,
             world_pipeline,
             ui_pipeline,
             stream,
+            target,
+            size,
+            present_pipeline,
+            present_bindings,
         }
     }
     pub fn upload(&mut self, mesh: &Mesh) -> GpuMesh {
@@ -118,8 +161,21 @@ impl Renderer {
         }
     }
     pub fn begin(&mut self) {
-        self.ctx
-            .begin_default_pass(PassAction::clear_color(SKY[0], SKY[1], SKY[2], 1.));
+        self.ctx.begin_pass(
+            Some(self.target),
+            PassAction::clear_color(SKY[0], SKY[1], SKY[2], 1.),
+        );
+    }
+    pub fn resize(&mut self, size: (u32, u32)) {
+        if self.size == size {
+            return;
+        }
+        let (target, color) = make_target(self.ctx.as_mut(), size);
+        // Miniquad deletes a pass's owned colour/depth textures with the pass.
+        self.ctx.delete_render_pass(self.target);
+        self.target = target;
+        self.size = size;
+        self.present_bindings.images[0] = color;
     }
     pub fn static_mesh(&mut self, mesh: &GpuMesh, matrix: Mat4, eye: Vec3) {
         self.ctx.apply_pipeline(&self.world_pipeline);
@@ -155,29 +211,31 @@ impl Renderer {
         }));
         self.ctx.draw(0, mesh.indices.len() as i32, 1);
     }
-    pub fn finish(&mut self) {
+    pub fn finish(&mut self, screenshot: Option<&str>) {
+        self.ctx.end_render_pass();
+        if let Some(path) = screenshot {
+            self.capture(path).expect("save screenshot");
+        }
+        self.ctx
+            .begin_default_pass(PassAction::clear_color(0.025, 0.035, 0.045, 1.));
+        let (w, h) = window::screen_size();
+        let (x, y, vw, vh) = viewport(w, h, self.size);
+        self.ctx
+            .apply_viewport(x as i32, y as i32, vw as i32, vh as i32);
+        self.ctx.apply_pipeline(&self.present_pipeline);
+        self.ctx.apply_bindings(&self.present_bindings);
+        self.ctx.draw(0, 6, 1);
         self.ctx.end_render_pass();
         self.ctx.commit_frame();
     }
 
-    /// Capture the actual OpenGL framebuffer for automated renderer smoke tests.
-    pub fn capture(&self, path: &str, width: usize, height: usize) -> std::io::Result<()> {
-        use miniquad::graphics::raw_gl::*;
+    /// Capture the resolved game render target, before scaling for the window.
+    fn capture(&mut self, path: &str) -> std::io::Result<()> {
         use std::io::Write;
+        let (width, height) = (self.size.0 as usize, self.size.1 as usize);
         let mut pixels = vec![0u8; width * height * 4];
-        // SAFETY: the active GL context owns the framebuffer; the allocated RGBA
-        // buffer has exactly width * height * 4 bytes and remains live for the call.
-        unsafe {
-            glReadPixels(
-                0,
-                0,
-                width as i32,
-                height as i32,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
-                pixels.as_mut_ptr().cast(),
-            );
-        }
+        self.ctx
+            .texture_read_pixels(self.present_bindings.images[0], &mut pixels);
         let mut file = std::fs::File::create(path)?;
         write!(file, "P6\n{} {}\n255\n", width, height)?;
         for y in (0..height).rev() {
@@ -189,6 +247,58 @@ impl Renderer {
         Ok(())
     }
 }
+
+/// Centre a render resolution in a window, preserving aspect with letterboxing.
+pub fn viewport(w: f32, h: f32, size: (u32, u32)) -> (f32, f32, f32, f32) {
+    let scale = (w / size.0 as f32).min(h / size.1 as f32);
+    let (vw, vh) = (size.0 as f32 * scale, size.1 as f32 * scale);
+    ((w - vw) * 0.5, (h - vh) * 0.5, vw, vh)
+}
+fn make_target(ctx: &mut dyn RenderingBackend, size: (u32, u32)) -> (RenderPass, TextureId) {
+    let color = ctx.new_render_texture(TextureParams {
+        width: size.0,
+        height: size.1,
+        format: TextureFormat::RGBA8,
+        min_filter: FilterMode::Linear,
+        mag_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+    let depth = ctx.new_render_texture(TextureParams {
+        width: size.0,
+        height: size.1,
+        format: TextureFormat::Depth,
+        sample_count: if ctx.info().features.resolve_attachments {
+            4
+        } else {
+            1
+        },
+        ..Default::default()
+    });
+    if ctx.info().features.resolve_attachments {
+        let multisample = ctx.new_render_texture(TextureParams {
+            width: size.0,
+            height: size.1,
+            format: TextureFormat::RGBA8,
+            sample_count: 4,
+            ..Default::default()
+        });
+        (
+            ctx.new_render_pass_mrt(&[multisample], Some(&[color]), Some(depth)),
+            color,
+        )
+    } else {
+        (ctx.new_render_pass(color, Some(depth)), color)
+    }
+}
+const PRESENT_VERTEX: &str = r#"#version 100
+attribute vec2 pos;
+varying vec2 uv;
+void main(){gl_Position=vec4(pos,0.0,1.0);uv=pos*0.5+0.5;}"#;
+const PRESENT_FRAGMENT: &str = r#"#version 100
+precision mediump float;
+uniform sampler2D image;
+varying vec2 uv;
+void main(){gl_FragColor=texture2D(image,uv);}"#;
 
 const WORLD_VERTEX: &str = r#"#version 100
 attribute vec3 in_pos;

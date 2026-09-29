@@ -3,13 +3,17 @@ use glam::{vec3, Vec2, Vec3};
 
 pub const RADIUS: f32 = 0.32;
 pub const HEIGHT: f32 = 1.65;
-const GRAVITY: f32 = 24.0;
+const GRAVITY: f32 = 28.0;
+pub const WALK_SPEED: f32 = 7.2;
+pub const SPRINT_SPEED: f32 = 10.5;
+pub const WALL_GRACE: f32 = 0.035;
 
 #[derive(Clone, Copy, Default)]
 pub struct Input {
     pub movement: Vec2,
     pub sprint: bool,
     pub jump: bool,
+    pub jump_held: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -24,12 +28,16 @@ pub struct Player {
     pub jumps: u32,
     pub wall_kicks: u32,
     pub long_jumps: u32,
+    pub animation_phase: f32,
     coyote: f32,
     jump_buffer: f32,
     wall_grace: f32,
     kick_lock: f32,
     last_wall: Vec3,
     long_air: bool,
+    jump_cuttable: bool,
+    wall_contact_age: f32,
+    touched_wall: bool,
 }
 
 impl Default for Player {
@@ -44,12 +52,16 @@ impl Default for Player {
             jumps: 0,
             wall_kicks: 0,
             long_jumps: 0,
+            animation_phase: 0.,
             coyote: 0.1,
             jump_buffer: 0.,
             wall_grace: 0.,
             kick_lock: 0.,
             last_wall: Vec3::ZERO,
             long_air: false,
+            jump_cuttable: false,
+            wall_contact_age: 0.,
+            touched_wall: false,
         }
     }
 }
@@ -75,28 +87,47 @@ impl Player {
             (self.coyote - dt).max(0.)
         };
         self.jump_buffer = if input.jump {
-            0.12
+            0.09
         } else {
             (self.jump_buffer - dt).max(0.)
         };
         self.wall_grace = (self.wall_grace - dt).max(0.);
         self.kick_lock = (self.kick_lock - dt).max(0.);
+        self.touched_wall = false;
         let forward = vec3(-yaw.sin(), 0., -yaw.cos());
         let right = vec3(yaw.cos(), 0., -yaw.sin());
+        let strength = input.movement.length().min(1.);
         let wish = (right * input.movement.x + forward * input.movement.y).normalize_or_zero();
         if wish.length_squared() > 0. {
-            self.facing = (-wish.x).atan2(-wish.z);
+            let target = (-wish.x).atan2(-wish.z);
+            let difference = (target - self.facing + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
+            self.facing += difference.clamp(-18. * dt, 18. * dt);
         }
         let max_speed = if self.long_air {
-            13.5
+            15.0
         } else if input.sprint {
-            9.0
+            SPRINT_SPEED
         } else {
-            6.2
+            WALK_SPEED
         };
-        let accel = if self.grounded { 45. } else { 13. };
+        let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+        let accel = if self.grounded {
+            if strength < 0.001 {
+                90.
+            } else if horizontal.dot(wish) < -0.1 {
+                110.
+            } else {
+                70.
+            }
+        } else if self.long_air {
+            10.
+        } else {
+            24.
+        };
         if self.kick_lock <= 0. {
-            let target = wish * max_speed;
+            let target = wish * max_speed * strength;
             let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
             let delta = if wish == Vec3::ZERO && !self.grounded {
                 Vec3::ZERO
@@ -109,19 +140,20 @@ impl Player {
         }
         if self.jump_buffer > 0. && self.coyote > 0. {
             self.velocity.y = if input.sprint && self.speed() > 3. {
-                7.8
+                9.0
             } else {
-                9.8
+                11.2
             };
             self.long_air = input.sprint && self.speed() > 3.;
+            self.jump_cuttable = !self.long_air;
             if self.long_air {
                 let launch = if wish.length_squared() > 0. {
                     wish
                 } else {
                     vec3(self.velocity.x, 0., self.velocity.z).normalize_or_zero()
                 };
-                self.velocity.x = launch.x * 13.5;
-                self.velocity.z = launch.z * 13.5;
+                self.velocity.x = launch.x * 15.;
+                self.velocity.z = launch.z * 15.;
                 self.long_jumps += 1;
                 self.action = "LONG JUMP";
             } else {
@@ -134,15 +166,19 @@ impl Player {
         } else if self.jump_buffer > 0.
             && !self.grounded
             && self.wall_grace > 0.
+            && self.wall_contact_age <= 0.12
             && self.kick_lock <= 0.
             && self.wall_normal.dot(self.last_wall) < 0.8
         {
-            self.velocity = self.wall_normal * 9.8 + Vec3::Y * 10.8 + wish * 1.2;
+            let tangent = wish - self.wall_normal * wish.dot(self.wall_normal);
+            self.velocity = self.wall_normal * 11.5 + Vec3::Y * 11.5 + tangent * 3.;
             self.last_wall = self.wall_normal;
-            self.kick_lock = 0.18;
+            self.kick_lock = 0.10;
             self.jump_buffer = 0.;
             self.wall_grace = 0.;
             self.long_air = false;
+            self.jump_cuttable = false;
+            self.wall_contact_age = 0.;
             self.wall_kicks += 1;
             self.action = "WALL KICK";
         }
@@ -161,7 +197,15 @@ impl Player {
             }
         }
         let before_y = self.pos.y;
-        self.velocity.y = (self.velocity.y - GRAVITY * dt).max(-35.);
+        let gravity =
+            if self.velocity.y > 0. && self.jump_cuttable && !input.jump_held && !input.jump {
+                GRAVITY * 2.8
+            } else if self.velocity.y < 0. {
+                GRAVITY * 1.25
+            } else {
+                GRAVITY
+            };
+        self.velocity.y = (self.velocity.y - gravity * dt).max(-42.);
         self.pos.y += self.velocity.y * dt;
         self.grounded = false;
         for s in &world.solids {
@@ -187,8 +231,17 @@ impl Player {
                 }
             }
         }
-        if !self.grounded && self.wall_grace > 0. && self.velocity.y < -3.0 {
-            self.velocity.y = -3.0;
+        if self.touched_wall {
+            self.wall_contact_age += dt;
+        } else if self.wall_grace <= 0. {
+            self.wall_contact_age = 0.;
+        }
+        if !self.grounded
+            && self.touched_wall
+            && self.wall_contact_age <= 0.12
+            && self.velocity.y < -5.5
+        {
+            self.velocity.y = -5.5;
             self.action = "WALL SLIDE";
         }
         if self.grounded {
@@ -204,6 +257,7 @@ impl Player {
         } else if self.velocity.y < 0. && self.wall_grace <= 0. {
             self.action = "AIRBORNE";
         }
+        self.animation_phase += self.speed() * dt * 2.6;
     }
 
     fn land(&mut self) {
@@ -212,13 +266,16 @@ impl Player {
         self.long_air = false;
         self.last_wall = Vec3::ZERO;
         self.wall_grace = 0.;
+        self.jump_cuttable = false;
+        self.wall_contact_age = 0.;
     }
 
     fn contact(&mut self, axis: usize, direction: f32) {
         let mut normal = Vec3::ZERO;
         normal[axis] = -direction;
         self.wall_normal = normal;
-        self.wall_grace = 0.10;
+        self.wall_grace = WALL_GRACE;
+        self.touched_wall = true;
         self.velocity[axis] = 0.;
     }
 

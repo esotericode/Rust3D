@@ -1,4 +1,6 @@
 pub mod camera;
+pub mod controller;
+pub mod frame;
 pub mod mesh;
 pub mod physics;
 pub mod renderer;

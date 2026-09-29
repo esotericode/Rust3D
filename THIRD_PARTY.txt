@@ -1,0 +1,17 @@
+Stride's game and engine source is MIT licensed; see LICENSE.
+
+The executable incorporates these libraries:
+
+miniquad 0.4.11 - MIT
+https://github.com/not-fl3/miniquad
+glam 0.30.9 - MIT or Apache-2.0
+https://github.com/bitshifter/glam-rs
+gilrs 0.11.2 and gilrs-core 0.6.8 - MPL-2.0
+https://gitlab.com/gilrs-project/gilrs
+Unmodified gilrs source: https://crates.io/crates/gilrs/0.11.2
+Unmodified gilrs-core source: https://crates.io/crates/gilrs-core/0.6.8
+MPL-2.0 text: https://www.mozilla.org/en-US/MPL/2.0/
+
+Cargo.lock records all exact dependency versions. Dependency source and their
+license notices are available through the corresponding crates.io packages.
+Rust3D source and build instructions: https://github.com/esotericode/Rust3D

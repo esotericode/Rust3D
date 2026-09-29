@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod app;
+mod menu;
 
 fn main() {
     std::panic::set_hook(Box::new(|info| {
@@ -35,15 +36,56 @@ fn main() {
             }
         }
     }));
+    let args: Vec<String> = std::env::args().collect();
+    let smoke = args.iter().any(|s| s == "--smoke-test");
+    let mut settings = if smoke {
+        stride::settings::Settings::default()
+    } else {
+        stride::settings::Settings::load()
+    };
+    if smoke {
+        if let Some(i) = args.iter().position(|s| s == "--test-resolution") {
+            if let Some(value) = args.get(i + 1) {
+                if let Some((w, h)) = value.split_once('x') {
+                    if let (Ok(w), Ok(h)) = (w.parse(), h.parse()) {
+                        if let Some(index) = stride::settings::RESOLUTIONS
+                            .iter()
+                            .position(|size| *size == (w, h))
+                        {
+                            settings.resolution = index;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(i) = args.iter().position(|s| s == "--test-cap") {
+            if let Some(value) = args.get(i + 1) {
+                let cap = if value == "uncapped" {
+                    None
+                } else {
+                    value.parse().ok()
+                };
+                if let Some(index) = stride::settings::FRAME_CAPS.iter().position(|v| *v == cap) {
+                    settings.frame_cap = index;
+                }
+            }
+        }
+    }
+    let (width, height) = settings.size();
     miniquad::start(
         miniquad::conf::Conf {
             window_title: "STRIDE / Rust3D Movement Lab".into(),
-            window_width: 1280,
-            window_height: 800,
+            window_width: width as i32,
+            window_height: height as i32,
+            fullscreen: settings.fullscreen,
             high_dpi: true,
             sample_count: 4,
+            platform: miniquad::conf::Platform {
+                swap_interval: Some(0),
+                ..Default::default()
+            },
             ..Default::default()
         },
-        || Box::new(app::Game::new()),
+        move || Box::new(app::Game::new(settings)),
     );
 }

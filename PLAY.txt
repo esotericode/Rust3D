@@ -1,5 +1,5 @@
 STRIDE / RUST3D MOVEMENT LAB
-Version 0.1.0
+Version 0.2.0
 
 GET GOING
 Extract the ZIP, open Stride-Windows, and double-click Stride.exe.
@@ -9,30 +9,66 @@ Windows 10/11, 64-bit, with an OpenGL-capable graphics driver.
 CONTROLS
 WASD or arrow keys     Move relative to the camera
 Left or right Shift   Sprint
-Space                 Jump
+Space                 Tap for a hop / hold for a high jump
 Shift + Space         Long jump while moving at speed
 Space against a wall  Wall kick (release and press again each time)
 Q / E                 Orbit camera
 Hold right mouse      Drag to look around
 Mouse wheel           Zoom
 R                     Respawn at the last beacon
-Enter                 Restart the course (resume while paused)
+Enter                 Restart course / confirm menu selection
 F1                    Controls and movement tips
+F2                    Options (resolution, frame cap, deadzone)
 F11                   Fullscreen
-Escape                Pause; click Exit Game to quit
+Escape                Pause / back; choose Exit Game to quit
+
+STANDARD CONTROLLER
+Left stick            Analog walk/run, with a 10 percent radial deadzone
+Right stick           Orbit camera, with the same deadzone
+A / Cross             Jump, wall kick, or confirm menu selection
+RT or B / Circle      Sprint; add A / Cross for a long jump
+X / Square            Respawn
+Y / Triangle          Recenter camera
+Start / Menu          Pause / resume; choose Options in the pause menu
+Select / View         Controls
+D-pad or left stick   Navigate menus; left/right changes options
+Controllers can be connected after startup. Xbox-compatible controllers are
+the primary target; other devices need compatible Windows drivers/mappings.
 
 THE PLAYGROUND
 Run up the orange ramp to beacon 1. Jump the blocks to beacon 2.
 Use the second ramp to reach the launch platform, then run and long jump
 across the gap to beacon 3. Alternate wall kicks between the two tall
 walls to reach beacon 4. Pass through the tunnel for beacon 5.
+Then explore the much larger courtyard, climb the thirteen spiral ledges of
+the tower in the northwest for beacon 6, and reach the broad ridge for beacon 7.
+There are six ramps, extra jump blocks, wall pairs, and open running areas.
 The course timer starts when you move. Beacons save your respawn position.
 Falling returns you to your latest checkpoint. You can also explore freely.
 Best times are kept for the current session.
 
+REFINED MOVEMENT
+Light stick input walks; full input runs. Stopping and reversing are quicker.
+Tap jump for a low hop, or hold for a full jump. Air steering is more responsive.
+Wall kicks require a fresh press in the first 120 milliseconds of contact.
+There is 35 milliseconds of grace after leaving the wall, and a brief wall
+slide. Alternate walls rather than hanging on one wall indefinitely.
+
+DISPLAY OPTIONS
+Default: 1280 x 720 render resolution, 60 FPS cap, windowed.
+F2 opens Options directly. Change rows with left/right, then Apply and Save.
+Resolutions: 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440.
+Caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
+Deadzone: 0 to 30 percent in 5 percent steps; default is 10 percent.
+Render resolution controls the game image. Fullscreen scales that image to
+your display and preserves its aspect ratio. Window size can differ due to DPI.
+Movement simulation stays at 120 Hz, independently of the rendered frame cap.
+The HUD and Options show actual FPS, which can be below the selected cap.
+Preferences are saved in %LOCALAPPDATA%\Rust3D\stride-options.cfg.
+
 This first prototype uses a box character collider and static blocks/wedges.
 The robot, level, shaders, and font are procedural.
-No audio or controller support yet.
+No audio, vibration, or controller rebinding yet.
 
 TROUBLESHOOTING
 If startup fails, update your GPU driver and look for stride-error.log

@@ -1,7 +1,7 @@
 use glam::{vec3, Vec2, Vec3};
 use stride::{
     engine::{
-        physics::{Input, Player, HEIGHT, RADIUS},
+        physics::{Input, Player, HEIGHT, RADIUS, WALK_SPEED},
         FIXED_DT,
     },
     world::{Ramp, Solid, World, NAVY},
@@ -30,6 +30,7 @@ fn movement(x: f32, y: f32, sprint: bool) -> Input {
         movement: Vec2::new(x, y),
         sprint,
         jump: false,
+        jump_held: false,
     }
 }
 
@@ -38,7 +39,7 @@ fn running_accelerates_and_stops_without_drifting() {
     let w = floor();
     let mut p = player(Vec3::ZERO);
     steps(&mut p, &w, movement(0., 1., false), 120);
-    assert!((p.speed() - 6.2).abs() < 0.01 && p.pos.z < -5. && p.grounded);
+    assert!((p.speed() - WALK_SPEED).abs() < 0.01 && p.pos.z < -6. && p.grounded);
     steps(&mut p, &w, Input::default(), 60);
     assert!(p.speed() < 0.01 && p.pos.y.abs() < 0.001);
 }
@@ -69,6 +70,7 @@ fn jump_has_an_apex_and_lands_on_floor() {
     p.step(
         Input {
             jump: true,
+            jump_held: true,
             ..Default::default()
         },
         0.,
@@ -76,10 +78,18 @@ fn jump_has_an_apex_and_lands_on_floor() {
         FIXED_DT,
     );
     for _ in 0..150 {
-        p.step(Input::default(), 0., &w, FIXED_DT);
+        p.step(
+            Input {
+                jump_held: true,
+                ..Default::default()
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
         apex = apex.max(p.pos.y);
     }
-    assert!(apex > 1.9 && apex < 2.1 && p.grounded && p.pos.y.abs() < 0.001);
+    assert!(apex > 2.1 && apex < 2.3 && p.grounded && p.pos.y.abs() < 0.001);
     assert_eq!(p.jumps, 1);
 }
 #[test]
@@ -171,7 +181,7 @@ fn wall_slide_and_alternating_kicks_gain_height() {
     p.velocity = vec3(4., -10., 0.);
     p.step(movement(1., 0., false), 0., &w, FIXED_DT);
     assert_eq!(p.wall_normal, Vec3::NEG_X);
-    assert!(p.velocity.y >= -3.01);
+    assert!(p.velocity.y >= -5.51);
     p.step(
         Input {
             jump: true,

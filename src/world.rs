@@ -5,6 +5,9 @@ pub const MINT: [f32; 3] = [0.25, 0.88, 0.76];
 pub const ORANGE: [f32; 3] = [1.0, 0.48, 0.25];
 pub const CONCRETE: [f32; 3] = [0.69, 0.73, 0.71];
 pub const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 13.0);
+pub const LEVEL_SIZE: Vec3 = Vec3::new(112., 1.2, 112.);
+pub const LEVEL_CENTER: Vec3 = Vec3::new(0., -0.6, -12.);
+pub const TOWER: Vec3 = Vec3::new(-34., 0., -40.);
 
 #[derive(Clone, Debug)]
 pub struct Solid {
@@ -59,7 +62,7 @@ pub struct World {
 impl Default for World {
     fn default() -> Self {
         let mut solids = vec![
-            Solid::new(vec3(0., -0.6, -3.), vec3(48., 1.2, 46.), CONCRETE),
+            Solid::new(LEVEL_CENTER, LEVEL_SIZE, CONCRETE),
             // Ramp landing.
             Solid::new(vec3(-8., 1., -1.), vec3(6., 2., 4.), NAVY),
             // Jump staircase.
@@ -79,10 +82,52 @@ impl Default for World {
             Solid::new(vec3(8., 2.6, 5.), vec3(4.7, 0.8, 5.), NAVY),
         ];
         // Small edge posts leave the playground open for fall/respawn tests.
-        for x in [-23., 23.] {
-            for z in [-25., -13., -1., 11., 19.] {
+        for x in [-55., 55.] {
+            for z in [-67., -45., -23., -1., 21., 43.] {
                 solids.push(Solid::new(vec3(x, 0.55, z), vec3(0.5, 1.1, 0.5), NAVY));
             }
+        }
+        // Thirteen ledges spiral around the core with 1.1 m rises. The final
+        // ledge meets roof height so the finish avoids an abrupt reverse jump.
+        solids.push(Solid::new(
+            TOWER + vec3(0., 7.15, 0.),
+            vec3(5., 14.3, 5.),
+            NAVY,
+        ));
+        let ledges = [
+            (0., 4.5),
+            (4.5, 4.5),
+            (4.5, 0.),
+            (4.5, -4.5),
+            (0., -4.5),
+            (-4.5, -4.5),
+            (-4.5, 0.),
+            (-4.5, 4.5),
+        ];
+        for i in 0..13 {
+            let (x, z) = ledges[i % ledges.len()];
+            let y = (i + 1) as f32 * 1.1;
+            solids.push(Solid::new(
+                TOWER + vec3(x, y - 0.225, z),
+                vec3(3.4, 0.45, 3.4),
+                NAVY,
+            ));
+        }
+        solids.push(Solid::new(vec3(34., 2., -22.), vec3(12., 4., 8.), NAVY));
+        solids.push(Solid::new(vec3(-40., 1.5, -32.), vec3(10., 3., 6.), NAVY));
+        for (i, x) in [-38., -28., 28., 40.].into_iter().enumerate() {
+            for z in [21., 32.] {
+                let height = 0.8 + i as f32 * 0.45;
+                solids.push(Solid::new(
+                    vec3(x, height * 0.5, z),
+                    vec3(4., height, 4.),
+                    NAVY,
+                ));
+            }
+        }
+        // Short wall-kick pairs and a broad open running area surround the lab.
+        for x in [-17., -13.] {
+            solids.push(Solid::new(vec3(x, 2.5, 28.), vec3(1., 5., 8.), NAVY));
         }
         Self {
             solids,
@@ -94,6 +139,22 @@ impl Default for World {
                 Ramp {
                     min: vec3(-2.5, 0., -12.5),
                     max: vec3(2.5, 3., -3.5),
+                },
+                Ramp {
+                    min: vec3(28., 0., -18.),
+                    max: vec3(40., 4., 2.),
+                },
+                Ramp {
+                    min: vec3(-45., 0., -29.),
+                    max: vec3(-35., 3., -14.),
+                },
+                Ramp {
+                    min: vec3(25., 0., 15.),
+                    max: vec3(31., 2., 27.),
+                },
+                Ramp {
+                    min: vec3(-48., 0., 15.),
+                    max: vec3(-42., 2.5, 29.),
                 },
             ],
             beacons: vec![
@@ -115,7 +176,15 @@ impl Default for World {
                 },
                 Beacon {
                     pos: vec3(8., 0., 6.),
-                    name: "TUNNEL / THE HOME STRETCH",
+                    name: "TUNNEL / THEN FIND THE TOWER",
+                },
+                Beacon {
+                    pos: TOWER + Vec3::Y * 14.3,
+                    name: "TOWER / CLIMB THE SPIRAL",
+                },
+                Beacon {
+                    pos: vec3(34., 4., -22.),
+                    name: "RIDGE / THE FINAL RUN",
                 },
             ],
         }

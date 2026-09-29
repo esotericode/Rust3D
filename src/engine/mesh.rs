@@ -31,8 +31,21 @@ impl Mesh {
         self.indices.extend([start, start + 1, start + 2]);
     }
     pub fn quad(&mut self, p: [Vec3; 4], color: [f32; 3], style: f32) {
-        self.triangle(p[0], p[1], p[2], color, style);
-        self.triangle(p[0], p[2], p[3], color, style);
+        let normal = (p[1] - p[0])
+            .cross(p[2] - p[0])
+            .normalize_or_zero()
+            .to_array();
+        let start = self.vertices.len() as u16;
+        for pos in p {
+            self.vertices.push(Vertex {
+                pos: pos.to_array(),
+                normal,
+                color,
+                style,
+            });
+        }
+        self.indices
+            .extend([start, start + 1, start + 2, start, start + 2, start + 3]);
     }
     pub fn cube(&mut self, center: Vec3, size: Vec3, color: [f32; 3], style: f32) {
         let a = center - size * 0.5;

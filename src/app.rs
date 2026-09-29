@@ -1,16 +1,20 @@
+use crate::menu::{Action, Menu, Screen};
 use glam::{vec3, Mat4, Vec2, Vec3};
-use miniquad::{date, window, EventHandler, KeyCode, KeyMods, MouseButton};
+use miniquad::{window, EventHandler, KeyCode, KeyMods, MouseButton};
 use std::collections::HashSet;
 use stride::{
     engine::{
         camera::Camera,
+        controller::Controller,
+        frame::FramePacer,
         mesh::Mesh,
         physics::{Input, Player},
-        renderer::{GpuMesh, Renderer},
+        renderer::{viewport, GpuMesh, Renderer},
         ui::{Ui, INK, MUTED, WHITE},
         FIXED_DT,
     },
-    world::{World, CONCRETE, MINT, NAVY, ORANGE, SPAWN},
+    settings::Settings,
+    world::{World, CONCRETE, LEVEL_CENTER, LEVEL_SIZE, MINT, NAVY, ORANGE, SPAWN, TOWER},
 };
 
 pub struct Game {
@@ -20,13 +24,16 @@ pub struct Game {
     player: Player,
     camera: Camera,
     keys: HashSet<KeyCode>,
+    controller: Controller,
+    settings: Settings,
+    menu: Menu,
+    pacer: FramePacer,
+    fps: f32,
+    menu_direction: (i32, i32),
+    menu_repeat: f32,
     jump_pending: bool,
     orbit: bool,
     mouse: (f32, f32),
-    paused: bool,
-    help: bool,
-    fullscreen: bool,
-    previous: f64,
     accumulator: f32,
     time: f32,
     elapsed: f32,
@@ -39,12 +46,14 @@ pub struct Game {
     frames: u32,
     screenshot: Option<String>,
     smoke: bool,
+    smoke_frames: u32,
 }
 
 impl Game {
-    pub fn new() -> Self {
+    pub fn new(settings: Settings) -> Self {
         let world = World::default();
         let mut renderer = Renderer::new();
+        renderer.resize(settings.size());
         let scenery = renderer.upload(&build_scene(&world));
         let args: Vec<String> = std::env::args().collect();
         let screenshot = args
@@ -52,20 +61,23 @@ impl Game {
             .position(|s| s == "--screenshot")
             .and_then(|i| args.get(i + 1))
             .cloned();
-        Self {
+        let mut game = Self {
             renderer,
             scenery,
             world,
             player: Player::default(),
             camera: Camera::new(SPAWN),
             keys: HashSet::new(),
+            controller: Controller::default(),
+            menu: Menu::new(settings.clone()),
+            settings,
+            pacer: FramePacer::default(),
+            fps: 60.,
+            menu_direction: (0, 0),
+            menu_repeat: 0.,
             jump_pending: false,
             orbit: false,
             mouse: (0., 0.),
-            paused: false,
-            help: false,
-            fullscreen: false,
-            previous: date::now(),
             accumulator: 0.,
             time: 0.,
             elapsed: 0.,
@@ -73,23 +85,55 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "WELCOME TO STRIDE / FOLLOW THE ORANGE BEACONS".into(),
+            toast_text: "STRIDE 0.2 / MORE ROOM. SHARPER MOVES.".into(),
             best: None,
             frames: 0,
             screenshot,
             smoke: args.iter().any(|s| s == "--smoke-test"),
+            smoke_frames: args
+                .iter()
+                .position(|s| s == "--smoke-frames")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10)
+                .clamp(10, 3600),
+        };
+        if args.iter().any(|s| s == "--tower-view") {
+            game.player.respawn(TOWER + vec3(9., 0.1, 28.));
+            game.camera = Camera::new(game.player.pos);
+            game.camera.yaw = 0.35;
+            game.camera.pitch = 0.32;
+            game.camera.distance = 17.;
+            game.camera.update(game.player.pos, &game.world, 1.);
+            game.collected = 5;
+            game.toast = 0.;
         }
+        if args.iter().any(|s| s == "--options") {
+            game.open(Screen::Options);
+        }
+        if args.iter().any(|s| s == "--help-view") {
+            game.open(Screen::Help);
+        }
+        game
     }
     fn down(&self, key: KeyCode) -> bool {
         self.keys.contains(&key)
     }
+    fn paused(&self) -> bool {
+        self.menu.screen.is_some()
+    }
     fn movement(&self) -> Vec2 {
-        Vec2::new(
+        let keyboard = Vec2::new(
             (self.down(KeyCode::D) || self.down(KeyCode::Right)) as i32 as f32
                 - (self.down(KeyCode::A) || self.down(KeyCode::Left)) as i32 as f32,
             (self.down(KeyCode::W) || self.down(KeyCode::Up)) as i32 as f32
                 - (self.down(KeyCode::S) || self.down(KeyCode::Down)) as i32 as f32,
-        )
+        );
+        if keyboard.length_squared() > 0. {
+            keyboard.clamp_length_max(1.)
+        } else {
+            self.controller.state.movement
+        }
     }
     fn respawn(&mut self) {
         self.player.respawn(self.checkpoint + Vec3::Y * 0.08);
@@ -104,15 +148,131 @@ impl Game {
         self.elapsed = 0.;
         self.started = false;
         self.checkpoint = SPAWN;
-        self.toast_text = "NEW RUN / FIVE BEACONS. YOUR ROUTE.".into();
+        self.jump_pending = false;
+        self.toast_text = "NEW RUN / SEVEN BEACONS. YOUR ROUTE.".into();
         self.toast = 4.;
     }
-    fn pause(&mut self) {
-        self.paused = !self.paused;
+    fn clear_input(&mut self) {
         self.keys.clear();
         self.jump_pending = false;
         self.orbit = false;
         self.accumulator = 0.;
+        self.menu_direction = (0, 0);
+        self.menu_repeat = 0.;
+    }
+    fn open(&mut self, screen: Screen) {
+        self.clear_input();
+        self.menu.open(screen, &self.settings);
+    }
+    fn resume(&mut self) {
+        self.menu.screen = None;
+        self.clear_input();
+    }
+    fn back(&mut self) {
+        if self.menu.screen == Some(Screen::Pause) {
+            self.resume();
+        } else {
+            self.open(Screen::Pause);
+        }
+    }
+    fn action(&mut self, action: Action) {
+        match action {
+            Action::None => {}
+            Action::Resume => self.resume(),
+            Action::Options => self.open(Screen::Options),
+            Action::Help => self.open(Screen::Help),
+            Action::Restart => {
+                self.restart();
+                self.resume();
+            }
+            Action::Quit => window::order_quit(),
+            Action::Back => self.back(),
+            Action::Apply => {
+                self.settings = self.menu.draft.clone();
+                self.renderer.resize(self.settings.size());
+                window::set_fullscreen(self.settings.fullscreen);
+                if !self.settings.fullscreen {
+                    let (w, h) = self.settings.size();
+                    window::set_window_size(w, h);
+                }
+                self.menu.status = if self.settings.save().is_ok() {
+                    "APPLIED AND SAVED".into()
+                } else {
+                    "APPLIED / COULD NOT SAVE SETTINGS".into()
+                };
+            }
+        }
+    }
+    fn confirm(&mut self) {
+        let action = self.menu.confirm();
+        self.action(action);
+    }
+    fn poll_controller(&mut self, dt: f32) {
+        self.controller.poll(self.settings.deadzone());
+        let pad = self.controller.state;
+        if pad.pause {
+            if self.paused() {
+                self.resume();
+            } else {
+                self.open(Screen::Pause);
+            }
+            return;
+        }
+        if pad.help {
+            if self.menu.screen == Some(Screen::Help) {
+                self.resume();
+            } else {
+                self.open(Screen::Help);
+            }
+            return;
+        }
+        if self.paused() {
+            if pad.back {
+                self.back();
+                return;
+            }
+            let direction = (
+                if pad.menu_axis.x > 0.5 {
+                    1
+                } else if pad.menu_axis.x < -0.5 {
+                    -1
+                } else {
+                    0
+                },
+                if pad.menu_axis.y > 0.5 {
+                    -1
+                } else if pad.menu_axis.y < -0.5 {
+                    1
+                } else {
+                    0
+                },
+            );
+            self.menu_repeat -= dt;
+            if direction != (0, 0) && (direction != self.menu_direction || self.menu_repeat <= 0.) {
+                if direction.1 != 0 {
+                    self.menu.navigate(direction.1);
+                } else {
+                    self.menu.adjust(direction.0);
+                }
+                self.menu_repeat = if direction != self.menu_direction {
+                    0.32
+                } else {
+                    0.16
+                };
+            }
+            self.menu_direction = direction;
+            if pad.jump {
+                self.confirm();
+            }
+        } else {
+            self.jump_pending |= pad.jump;
+            if pad.respawn {
+                self.respawn();
+            }
+            if pad.recenter {
+                self.camera.yaw = self.player.facing;
+            }
+        }
     }
     fn tick(&mut self) {
         let movement = self.movement();
@@ -123,12 +283,16 @@ impl Game {
             self.elapsed += FIXED_DT;
         }
         let turn = self.down(KeyCode::Q) as i32 - self.down(KeyCode::E) as i32;
-        self.camera.yaw += turn as f32 * FIXED_DT * 1.8;
+        self.camera.yaw += (turn as f32 * 1.8 - self.controller.state.camera.x * 2.6) * FIXED_DT;
+        self.camera.pitch -= self.controller.state.camera.y * FIXED_DT * 1.8;
         self.player.step(
             Input {
                 movement,
-                sprint: self.down(KeyCode::LeftShift) || self.down(KeyCode::RightShift),
+                sprint: self.down(KeyCode::LeftShift)
+                    || self.down(KeyCode::RightShift)
+                    || self.controller.state.sprint,
                 jump: std::mem::take(&mut self.jump_pending),
+                jump_held: self.down(KeyCode::Space) || self.controller.state.jump_held,
             },
             self.camera.yaw,
             &self.world,
@@ -147,7 +311,7 @@ impl Game {
                 self.toast_text = format!("BEACON {} / CHECKPOINT SAVED", self.collected);
                 if self.collected == self.world.beacons.len() {
                     self.best = Some(self.best.map_or(self.elapsed, |b| b.min(self.elapsed)));
-                    self.toast_text = "COURSE COMPLETE / EXPLORE, OR ENTER FOR ANOTHER RUN".into();
+                    self.toast_text = "COURSE COMPLETE / EXPLORE OR RESTART IN PAUSE".into();
                     self.toast = 8.;
                 }
             }
@@ -155,33 +319,43 @@ impl Game {
         self.time += FIXED_DT;
         self.toast = (self.toast - FIXED_DT).max(0.);
     }
-
-    fn hud(&self, w: f32, h: f32, matrix: Mat4) -> Ui {
+    fn hud(&self, matrix: Mat4) -> Ui {
+        let (w, h) = (1280., 720.);
         let mut ui = Ui::default();
-        ui.rect(24., 24., 300., 94., INK);
-        ui.rect(24., 24., 4., 94., MINT);
+        ui.rect(24., 24., 300., 110., INK);
+        ui.rect(24., 24., 4., 110., MINT);
         ui.text(43., 40., "STRIDE", 4., WHITE);
         ui.text(44., 82., "RUST3D / MOVEMENT LAB", 1.5, MUTED);
+        ui.text(
+            44.,
+            110.,
+            &format!("FPS {:.0} / SIM 120 HZ / V0.2", self.fps),
+            1.,
+            MINT,
+        );
         let x = w - 288.;
-        ui.rect(x, 24., 264., 94., INK);
+        ui.rect(x, 24., 264., 110., INK);
         ui.text(
             x + 18.,
             40.,
-            &format!("BEACONS  {:02} / 05", self.collected),
+            &format!(
+                "BEACONS {:02} / {:02}",
+                self.collected,
+                self.world.beacons.len()
+            ),
             2.,
             WHITE,
         );
         ui.text(
             x + 18.,
             76.,
-            &format!("TIME  {:05.1} S", self.elapsed),
+            &format!("TIME {:05.1} S", self.elapsed),
             2.,
             MINT,
         );
         if let Some(best) = self.best {
-            ui.text(x + 18., 104., &format!("BEST {:.1} S", best), 1., MUTED);
+            ui.text(x + 18., 110., &format!("BEST {:.1} S", best), 1., MUTED);
         }
-        // Ordered beacon markers are projected from the actual 3D positions.
         for (i, b) in self.world.beacons.iter().enumerate() {
             if i < self.collected {
                 continue;
@@ -191,7 +365,7 @@ impl Game {
                 continue;
             }
             let ndc = p.truncate() / p.w;
-            if ndc.x.abs() > 0.92 || ndc.y.abs() > 0.7 {
+            if ndc.x.abs() > 0.92 || ndc.y.abs() > 0.6 {
                 continue;
             }
             let px = (ndc.x * 0.5 + 0.5) * w;
@@ -200,118 +374,110 @@ impl Game {
             ui.rect(px - 13., py - 13., 26., 26., INK);
             ui.text(px - 5., py - 7., &format!("{}", i + 1), 2., c);
         }
-        // Compact movement telemetry.
-        ui.rect(24., h - 166., 222., 70., INK);
+        ui.rect(24., h - 166., 252., 70., INK);
         ui.text(40., h - 151., self.player.action, 2., MINT);
         ui.text(
             40.,
-            h - 122.,
+            h - 124.,
             &format!("SPEED {:.1} M/S", self.player.speed()),
             1.5,
             WHITE,
         );
-        // Course hint.
+        ui.text(
+            40.,
+            h - 105.,
+            if self.controller.name.is_some() {
+                "CONTROLLER CONNECTED"
+            } else {
+                "KEYBOARD / MOUSE"
+            },
+            1.,
+            MUTED,
+        );
         let hint = self
             .world
             .beacons
             .get(self.collected)
-            .map_or("COMPLETE / ENTER TO RESTART", |b| b.name);
-        ui.rect(24., h - 80., w - 48., 56., INK);
-        ui.text(
-            40.,
-            h - 65.,
-            "WASD MOVE   SPACE JUMP   SHIFT + SPACE LONG JUMP",
-            1.5,
-            WHITE,
-        );
-        ui.text(
-            40.,
-            h - 44.,
-            "R RESPAWN   Q/E OR RIGHT DRAG CAMERA   F1 HELP",
-            1.2,
-            MUTED,
-        );
-        ui.text(w - 275., h - 45., "ESC PAUSE / F11 FULLSCREEN", 1., MINT);
-        ui.rect(w - 366., h - 152., 342., 56., INK);
-        ui.text(w - 349., h - 138., "NEXT BEACON", 1., MUTED);
-        ui.text(w - 349., h - 119., hint, 1.25, WHITE);
-        if self.toast > 0. {
-            let width = self.toast_text.len() as f32 * 7.2 + 32.;
-            ui.rect((w - width) * 0.5, 132., width, 38., INK);
-            ui.text((w - width) * 0.5 + 16., 146., &self.toast_text, 1.2, WHITE);
-        }
-        if self.help || self.paused {
-            let bx = (w - 620.) * 0.5;
-            let by = (h - 436.) * 0.5;
-            ui.rect(bx, by, 620., 436., INK);
-            ui.rect(bx, by, 620., 4., MINT);
+            .map_or("COMPLETE / RESTART IN PAUSE", |b| b.name);
+        ui.rect(w - 366., h - 166., 342., 70., INK);
+        ui.text(w - 349., h - 151., "NEXT BEACON", 1., MUTED);
+        ui.text(w - 349., h - 132., hint, 1.25, WHITE);
+        if let Some(b) = self.world.beacons.get(self.collected) {
             ui.text(
-                bx + 32.,
-                by + 28.,
-                if self.paused {
-                    "TAKE A BREATHER"
-                } else {
-                    "LEARN THE MOVES"
-                },
-                3.,
+                w - 349.,
+                h - 111.,
+                &format!("{:.0} M AWAY", (b.pos - self.player.pos).length()),
+                1.,
+                ORANGE,
+            );
+        }
+        ui.rect(24., h - 80., w - 48., 56., INK);
+        if self.controller.name.is_some() {
+            ui.text(
+                40.,
+                h - 65.,
+                "LEFT STICK MOVE   A JUMP   RT SPRINT   RT + A LONG JUMP",
+                1.5,
                 WHITE,
             );
-            for (i, (key, description)) in [
-                ("WASD / ARROWS", "MOVE RELATIVE TO THE CAMERA"),
-                ("SHIFT", "SPRINT"),
-                ("SPACE", "JUMP / WALL KICK IN THE AIR"),
-                ("SHIFT + SPACE", "LONG JUMP WHILE RUNNING"),
-                ("Q / E", "ORBIT CAMERA"),
-                ("RIGHT DRAG", "LOOK AROUND / SCROLL TO ZOOM"),
-                ("R / ENTER", "RESPAWN / RESTART THE COURSE"),
-                ("F1 / F11", "HELP / FULLSCREEN"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let y = by + 87. + i as f32 * 30.;
-                ui.text(bx + 32., y, key, 1.5, MINT);
-                ui.text(bx + 206., y, description, 1.4, WHITE);
-            }
             ui.text(
-                bx + 32.,
-                by + 340.,
-                "WALL KICK: JUMP INTO A WALL, THEN PRESS SPACE.",
-                1.5,
+                40.,
+                h - 44.,
+                "RIGHT STICK CAMERA   X RESPAWN   Y RECENTER   START OPTIONS",
+                1.2,
                 MUTED,
             );
+        } else {
             ui.text(
-                bx + 32.,
-                by + 362.,
-                "ALTERNATE WALLS TO CLIMB. BEACONS SAVE YOUR SPOT.",
+                40.,
+                h - 65.,
+                "WASD MOVE   HOLD SPACE HIGH JUMP   SHIFT + SPACE LONG JUMP",
                 1.5,
+                WHITE,
+            );
+            ui.text(
+                40.,
+                h - 44.,
+                "R RESPAWN   Q/E OR RIGHT DRAG CAMERA   F1 CONTROLS",
+                1.2,
                 MUTED,
             );
-            if self.paused {
-                ui.rect(bx + 32., by + 391., 260., 30., MINT);
-                ui.text(bx + 70., by + 400., "ENTER / RESUME", 1.7, INK);
-                ui.rect(bx + 328., by + 391., 260., 30., NAVY);
-                ui.text(bx + 402., by + 400., "EXIT GAME", 1.7, WHITE);
-            } else {
-                ui.text(
-                    bx + 32.,
-                    by + 403.,
-                    "F1 TO CLOSE / THE LAB IS YOURS",
-                    1.5,
-                    MINT,
-                );
-            }
         }
+        ui.text(w - 265., h - 45., "ESC PAUSE / F2 OPTIONS", 1., MINT);
+        if self.toast > 0. && !self.paused() {
+            let width = self.toast_text.len() as f32 * 7.2 + 32.;
+            ui.rect((w - width) * 0.5, 145., width, 38., INK);
+            ui.text((w - width) * 0.5 + 16., 159., &self.toast_text, 1.2, WHITE);
+        }
+        self.menu.draw(
+            &mut ui,
+            &self.settings,
+            self.controller.name.as_deref(),
+            self.fps,
+            window::screen_size(),
+        );
         ui
+    }
+    fn ui_position(&self, x: f32, y: f32) -> (f32, f32) {
+        let (w, h) = window::screen_size();
+        let (vx, vy, vw, vh) = viewport(w, h, self.settings.size());
+        ((x - vx) * 1280. / vw, (y - vy) * 720. / vh)
     }
 }
 
 impl EventHandler for Game {
     fn update(&mut self) {
-        let now = date::now();
-        let dt = ((now - self.previous) as f32).clamp(0., 0.05);
-        self.previous = now;
-        if !self.paused {
+        let elapsed = self.pacer.begin(self.settings.cap());
+        if self.frames > 0 && elapsed > 0.0001 {
+            self.fps = if self.frames == 1 {
+                1. / elapsed
+            } else {
+                self.fps * 0.9 + 0.1 / elapsed
+            };
+        }
+        let dt = elapsed.min(0.1);
+        self.poll_controller(dt);
+        if !self.paused() {
             self.accumulator += dt;
             while self.accumulator >= FIXED_DT {
                 self.tick();
@@ -324,91 +490,118 @@ impl EventHandler for Game {
         if physical_w <= 0. || physical_h <= 0. {
             return;
         }
-        let matrix = self.camera.matrix(physical_w / physical_h);
+        let (rw, rh) = self.renderer.size;
+        let matrix = self.camera.matrix(rw as f32 / rh as f32);
         self.renderer.begin();
         self.renderer
             .static_mesh(&self.scenery, matrix, self.camera.eye);
         let dynamic = build_dynamic(&self.world, &self.player, self.time, self.collected);
         self.renderer
             .dynamic(&dynamic, matrix, self.camera.eye, false);
-        // Layout in logical coordinates scales consistently on high-DPI displays.
-        let w = 1280.;
-        let h = w * physical_h / physical_w;
-        let hud = self.hud(w, h, matrix);
+        let hud = self.hud(matrix);
         self.renderer.dynamic(
             &hud.mesh,
-            Mat4::orthographic_rh_gl(0., w, h, 0., -1., 1.),
+            Mat4::orthographic_rh_gl(0., 1280., 720., 0., -1., 1.),
             Vec3::ZERO,
             true,
         );
         self.frames += 1;
-        if self.frames == 8 {
-            if let Some(path) = &self.screenshot {
-                self.renderer
-                    .capture(path, physical_w as usize, physical_h as usize)
-                    .expect("save screenshot");
-            }
-        }
-        self.renderer.finish();
-        if self.smoke && self.frames >= 10 {
+        self.renderer.finish(if self.frames == 8 {
+            self.screenshot.as_deref()
+        } else {
+            None
+        });
+        if self.smoke && self.frames >= self.smoke_frames {
+            println!(
+                "SMOKE: {} frames / {:.1} FPS / render {}x{} / simulated {:.3}s",
+                self.frames, self.fps, rw, rh, self.time
+            );
             window::order_quit();
         }
     }
     fn key_down_event(&mut self, key: KeyCode, _mods: KeyMods, repeat: bool) {
+        if key == KeyCode::Escape && !repeat {
+            if self.paused() {
+                self.back();
+            } else {
+                self.open(Screen::Pause);
+            }
+            return;
+        }
+        if key == KeyCode::F1 && !repeat {
+            if self.menu.screen == Some(Screen::Help) {
+                self.resume();
+            } else {
+                self.open(Screen::Help);
+            }
+            return;
+        }
+        if key == KeyCode::F2 && !repeat {
+            self.open(Screen::Options);
+            return;
+        }
+        if key == KeyCode::F11 && !repeat {
+            self.settings.fullscreen = !self.settings.fullscreen;
+            self.menu.draft.fullscreen = self.settings.fullscreen;
+            window::set_fullscreen(self.settings.fullscreen);
+            if !self.settings.fullscreen {
+                let (w, h) = self.settings.size();
+                window::set_window_size(w, h);
+            }
+            let _ = self.settings.save();
+            return;
+        }
+        if self.paused() {
+            match key {
+                KeyCode::Up | KeyCode::W => self.menu.navigate(-1),
+                KeyCode::Down | KeyCode::S => self.menu.navigate(1),
+                KeyCode::Left | KeyCode::A => self.menu.adjust(-1),
+                KeyCode::Right | KeyCode::D => self.menu.adjust(1),
+                KeyCode::Enter | KeyCode::Space if !repeat => self.confirm(),
+                _ => {}
+            }
+            return;
+        }
         if repeat {
             return;
         }
         match key {
-            KeyCode::Escape => self.pause(),
-            KeyCode::F1 => self.help = !self.help,
-            KeyCode::F11 => {
-                self.fullscreen = !self.fullscreen;
-                window::set_fullscreen(self.fullscreen);
-            }
-            KeyCode::Enter => {
-                if self.paused {
-                    self.pause();
-                } else {
-                    self.restart();
-                }
-            }
-            KeyCode::R if !self.paused => self.respawn(),
-            KeyCode::Space if !self.paused => {
-                self.jump_pending = true;
-            }
+            KeyCode::Enter => self.restart(),
+            KeyCode::R => self.respawn(),
+            KeyCode::Space => self.jump_pending = true,
             _ => {}
         }
-        if !self.paused {
-            self.keys.insert(key);
-        }
+        self.keys.insert(key);
     }
     fn key_up_event(&mut self, key: KeyCode, _mods: KeyMods) {
         self.keys.remove(&key);
     }
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
-        if self.orbit && !self.paused {
+        if self.orbit && !self.paused() {
             self.camera.yaw -= (x - self.mouse.0) * 0.006;
             self.camera.pitch += (y - self.mouse.1) * 0.004;
+        }
+        if self.paused() {
+            let (ux, uy) = self.ui_position(x, y);
+            if let Some(row) = self.menu.row_at(ux, uy) {
+                self.menu.selected = row;
+            }
         }
         self.mouse = (x, y);
     }
     fn mouse_button_down_event(&mut self, button: MouseButton, x: f32, y: f32) {
-        if button == MouseButton::Right {
+        if button == MouseButton::Right && !self.paused() {
             self.orbit = true;
             self.mouse = (x, y);
         }
-        if button == MouseButton::Left && self.paused {
-            let (pw, ph) = window::screen_size();
-            let x = x * 1280. / pw;
-            let y = y * 1280. / pw;
-            let bx = (1280. - 620.) * 0.5;
-            let by = (1280. * ph / pw - 436.) * 0.5;
-            if y >= by + 391. && y <= by + 421. {
-                if x >= bx + 32. && x <= bx + 292. {
-                    self.pause();
-                }
-                if x >= bx + 328. && x <= bx + 588. {
-                    window::order_quit();
+        if button == MouseButton::Left && self.paused() {
+            let (ux, uy) = self.ui_position(x, y);
+            if let Some(row) = self.menu.row_at(ux, uy) {
+                self.menu.selected = row;
+                if self.menu.screen == Some(Screen::Options) && row < 4 {
+                    self.menu.adjust(if ux < 700. { -1 } else { 1 });
+                } else {
+                    self.confirm();
                 }
             }
         }
@@ -419,13 +612,15 @@ impl EventHandler for Game {
         }
     }
     fn mouse_wheel_event(&mut self, _x: f32, y: f32) {
-        if !self.paused {
+        if !self.paused() {
             self.camera.distance -= y * 0.7;
+        } else if y != 0. {
+            self.menu.adjust(y.signum() as i32);
         }
     }
     fn window_minimized_event(&mut self) {
-        if !self.paused {
-            self.pause();
+        if !self.paused() {
+            self.open(Screen::Pause);
         }
     }
 }
@@ -511,12 +706,17 @@ fn build_scene(world: &World) -> Mesh {
         m.cube(vec3(1.4, 3.06, z), vec3(0.8, 0.03, 0.25), ORANGE, 2.);
     }
     // Floating courtyard skirt and a distant architectural skyline.
-    m.cube(vec3(0., -1.3, -3.), vec3(47., 0.3, 45.), NAVY, 0.);
+    m.cube(
+        LEVEL_CENTER + Vec3::Y * -0.7,
+        vec3(LEVEL_SIZE.x - 1., 0.3, LEVEL_SIZE.z - 1.),
+        NAVY,
+        0.,
+    );
     for i in 0..18 {
         let x = (i as f32 - 8.5) * 8.;
         let height = 6. + ((i * 7) % 13) as f32;
         m.cube(
-            vec3(x, height * 0.5 - 4., -54. - ((i * 3) % 8) as f32),
+            vec3(x, height * 0.5 - 4., -100. - ((i * 3) % 8) as f32),
             vec3(5., height, 5.),
             [0.49, 0.63, 0.69],
             0.,
@@ -556,7 +756,7 @@ fn build_dynamic(world: &World, p: &Player, time: f32, collected: usize) -> Mesh
     m.cube(vec3(0.10, 1.50, -0.265), vec3(0.12, 0.045, 0.015), MINT, 2.);
     m.cube(vec3(0., 0.72, 0.), vec3(0.48, 0.12, 0.38), NAVY, 0.);
     let swing = if p.grounded {
-        (time * 13.).sin() * (p.speed() / 9.).min(1.) * 0.7
+        p.animation_phase.sin() * (p.speed() / 9.).min(1.) * 0.7
     } else {
         -0.5
     };
