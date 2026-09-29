@@ -1,0 +1,16 @@
+[package]
+name = "stride"
+version = "0.1.0"
+edition = "2021"
+description = "A custom Rust 3D engine and movement playground"
+license = "MIT"
+
+[dependencies]
+miniquad = "=0.4.11"
+glam = "=0.30.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+

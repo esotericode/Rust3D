@@ -1,0 +1,41 @@
+STRIDE / RUST3D MOVEMENT LAB
+Version 0.1.0
+
+GET GOING
+Extract the ZIP, open Stride-Windows, and double-click Stride.exe.
+No installer, Rust toolchain, extra downloads, or assets required.
+Windows 10/11, 64-bit, with an OpenGL-capable graphics driver.
+
+CONTROLS
+WASD or arrow keys     Move relative to the camera
+Left or right Shift   Sprint
+Space                 Jump
+Shift + Space         Long jump while moving at speed
+Space against a wall  Wall kick (release and press again each time)
+Q / E                 Orbit camera
+Hold right mouse      Drag to look around
+Mouse wheel           Zoom
+R                     Respawn at the last beacon
+Enter                 Restart the course (resume while paused)
+F1                    Controls and movement tips
+F11                   Fullscreen
+Escape                Pause; click Exit Game to quit
+
+THE PLAYGROUND
+Run up the orange ramp to beacon 1. Jump the blocks to beacon 2.
+Use the second ramp to reach the launch platform, then run and long jump
+across the gap to beacon 3. Alternate wall kicks between the two tall
+walls to reach beacon 4. Pass through the tunnel for beacon 5.
+The course timer starts when you move. Beacons save your respawn position.
+Falling returns you to your latest checkpoint. You can also explore freely.
+Best times are kept for the current session.
+
+This first prototype uses a box character collider and static blocks/wedges.
+The robot, level, shaders, and font are procedural.
+No audio or controller support yet.
+
+TROUBLESHOOTING
+If startup fails, update your GPU driver and look for stride-error.log
+beside Stride.exe. The executable is unsigned.
+
+Source: https://github.com/esotericode/Rust3D

@@ -1,0 +1,55 @@
+name: Build and test Stride
+on:
+  push:
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked
+      - run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri
+      - name: Render the actual game with software OpenGL
+        run: xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --screenshot stride.ppm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stride-render-smoke-test
+          path: stride.ppm
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked
+      - name: Build standalone Windows executable
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --locked
+      - name: Package for double-click play
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/Stride-Windows
+          Copy-Item target/release/stride.exe dist/Stride-Windows/Stride.exe
+          Copy-Item PLAY.txt,LICENSE dist/Stride-Windows/
+          Compress-Archive -Path dist/Stride-Windows -DestinationPath dist/Stride-Windows.zip
+          Get-FileHash dist/Stride-Windows.zip -Algorithm SHA256 | Format-List | Out-File dist/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stride-Windows
+          path: |
+            dist/Stride-Windows.zip
+            dist/SHA256.txt
+          retention-days: 90
