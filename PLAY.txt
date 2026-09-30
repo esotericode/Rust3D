@@ -1,0 +1,146 @@
+STRIDE / RUST3D MOVEMENT LAB
+Version 0.6.0
+
+GET GOING
+Extract the ZIP, open Stride-Windows, and double-click Stride.exe.
+No installer, Rust toolchain, extra downloads, or assets required.
+Windows 10/11, 64-bit, with an OpenGL-capable graphics driver.
+
+KEYBOARD / MOUSE
+WASD or arrow keys     Move relative to the camera
+Left or right Shift   Sprint
+Space                 Tap hop / hold high jump / wall kick / rollout
+Shift + Space         Long jump while moving at speed
+F                     Dive; press again during the slide to roll out
+C                     Recenter camera
+Q / E                 Orbit camera
+Hold right mouse      Drag to look around
+Mouse wheel           Zoom
+Enter                 Confirm a menu selection
+F1                    Controls and movement tips
+F2                    Options (display, camera, controller, sound)
+F11                   Fullscreen
+Escape                Pause / back; choose Exit Game to quit
+
+DEFAULT CONTROLLER (gameplay bindings can be changed)
+Left stick            Analog walk/run; default 10 percent radial deadzone
+Right stick           Orbit camera; default 10 percent radial deadzone
+A / Cross             Jump / wall kick / rollout
+X / Square            Dive; press again during the slide to roll out
+RT / R2               Sprint; add Jump for a long jump
+Y / Triangle          Recenter camera
+Start / Menu          Pause / resume
+Select / View         Controls
+D-pad or left stick   Navigate menus; left/right changes options
+A / Cross, B / Circle  Menu confirm, back (fixed regardless of gameplay bindings)
+Controllers may connect after startup. Xbox-compatible controllers are the
+primary target; other devices need compatible Windows drivers/mappings.
+
+SAFE RESETS
+Respawn at Checkpoint and Restart Course are pause-menu options.
+Restart Course asks for confirmation, with Cancel selected by default.
+No gameplay button resets the course. The former X/Square, R, and Enter reset
+shortcuts are removed. Falling still returns you to your latest checkpoint.
+
+DIVE AND ROLLOUT
+Dive from the ground for a quick forward leap, or during a jump to reach farther.
+You can dive once per flight. Landing transitions into a short belly slide.
+Press Jump or Dive during that slide for a rollout hop with forward momentum.
+A jump pressed shortly before landing is buffered. Holding Jump from an earlier
+jump does not automatically roll out; release and press again.
+With no further press, the slide recovers by itself. Hold Sprint to keep sliding.
+Under a low ceiling you
+stay low; use movement to crawl out before standing or rolling out.
+
+HIGHLANDS / MOMENTUM IN VERSION 0.6
+Esc / Start > Highlands / Momentum Routes > choose one of five regions.
+1440 x 1680 m: sixteen times the previous map's area. Rolling hills, broad open
+spaces, four mountains with peaks above 200 m, 180 additional blocks and 40 ramps.
+Long Run has an open lane for chains. Rolling Basin tests hills and wide turns.
+Ridge Descent starts high for downhill slides. Mountain Pass tests steep grades.
+Block Fields provides varied blocks and ramps. See LANDSCAPE.md for the regions.
+Travel resets free-run stats and sets your respawn point. Respawn in Pause returns
+there. Return to Playground and Restart Course outside Skyway return to the lab.
+
+Run with Sprint, long jump, dive in flight, then press Jump on the landing slide
+to roll out. Repeat to build speed. Each move adds less speed as you get faster,
+but there is no hard horizontal speed cap. Watch SPEED, PEAK and CHAIN onscreen.
+Downhill gravity adds speed; uphill spends it. Steep faces slide. Uphill jumps
+keep upward slope momentum. Hold Sprint to extend a downhill slide.
+Strong forward input preserves earned speed; no input in the air coasts.
+Use lighter stick or opposite input to brake. Fast turns need wider arcs.
+See MOVEMENT.md for the rules, primary design references and tuning notes.
+
+THE PLAYGROUND
+Ramp to beacon 1, jump blocks to beacon 2, long jump to beacon 3, alternating
+wall kicks to beacon 4, tunnel to beacon 5, thirteen spiral tower ledges to
+beacon 6, and the broad ridge to beacon 7. Explore freely between timed runs.
+The 360 x 420 m courtyard has eleven ramps, extra blocks, wall pairs and open space.
+Beacons activate in order and save your respawn position. The run timer starts
+when you move. Best times last for the current session.
+Tap/hold jump changes height. Wall kicks require a fresh press in the first
+120 ms of contact, with 35 ms departure grace. Alternate walls to climb.
+
+SKYWAY / THE MOVING PLATFORM COURSE
+Esc / Start > Skyway / Section Practice > Start Full Skyway Course.
+Or walk up the broad entrance ramp to the east of the movement lab.
+46 ordered components, 16 moving platforms, eight sections, a 44 m summit.
+Amber moves; mint edges are fixed; violet decks save a checkpoint.
+Follow the numbered targets and surface arrows. Dotted rails show motion paths.
+Platforms pause briefly at both ends. Ride before jumping; lifts and shuttles
+transfer their momentum into jumps. On narrower pads, slow down and aim centrally.
+The early sections teach boarding, timing and lift exits. Later sections combine
+diagonal rides, direct pad transfers, a long jump, low dive arch and summit climb.
+See COURSE.md for section descriptions and technique hints.
+
+Each section ends on a fixed checkpoint deck. A fall returns you there and you
+replay that section. The retry count and timer continue. Respawn preserves motion
+phases; Restart Course resets phases and the run, after confirmation.
+Pause freezes platforms and the timer. Time counts real unpaused seconds, starting
+with movement, jump or dive. Full-course best times last for this session.
+Practice any section from the course menu; practice ends at its next checkpoint
+and never enters the full-course best. Return to Playground is also a menu option.
+
+OPTIONS
+F2, or Options in the pause menu. Apply and Save commits your draft changes.
+Default: 1280x720 render resolution, 60 FPS cap, windowed.
+Render sizes: 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440.
+Caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
+Fullscreen scales the render image to the display and preserves aspect ratio.
+Window size can differ due to desktop DPI. Actual FPS is shown onscreen.
+Movement stays at 120 Hz. Rendering blends character/camera states between
+physics updates; changing the cap does not change the movement constants.
+Camera Settings: sensitivity, invert vertical look, automatic alignment.
+Automatic alignment is off by default and pauses during manual camera input.
+Controller Settings: separate stick deadzones (0-30%), jump/dive/sprint/recenter
+bindings, vibration. Assigning an occupied button swaps the two actions.
+Sound Settings: synthesized movement effects volume (0 mutes).
+Preferences: %LOCALAPPDATA%\Rust3D\stride-options.cfg.
+Existing 0.2 preferences remain compatible.
+
+MOVEMENT FEEDBACK
+Smoother camera obstruction handling and capsule corners, dive/roll animations,
+landing squash, dust puffs, a landing-position marker and procedural movement
+sounds. Supported controllers can vibrate briefly on movement events.
+Sound/vibration availability depends on your output device and controller.
+If no audio device is available, the game continues silently.
+
+This prototype uses a variable-height capsule, heightfield terrain, blocks,
+ramps and moving platforms.
+Arbitrary meshes, an editor and music are future work.
+The robot, level, shaders, font and movement effects are generated in code.
+
+GRAPHICS / VERSION 0.5
+Rounded block and robot edges, textured concrete and painted metal, roughness
+highlights, per-pixel lighting, soft sun shadows and a gradient sky.
+The seamless surface texture is embedded and generated at startup; no assets
+need installation. Texture filtering reduces distant shimmer. Moving platforms
+carry their texture with them. Course marker colors stay clearly visible.
+Shadows follow the character and fade outside their local coverage area.
+Bevels and surface relief affect rendering; gameplay dimensions stay the same.
+If the higher graphics cost lowers FPS, choose a lower render resolution in F2.
+
+TROUBLESHOOTING
+If startup fails, update your GPU driver and look for stride-error.log
+beside Stride.exe. The executable is unsigned.
+Source: https://github.com/esotericode/Rust3D
