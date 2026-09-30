@@ -137,10 +137,13 @@ impl Camera {
         c
     }
     pub fn matrix(&self, aspect: f32) -> Mat4 {
+        // Overview cameras have no nearby geometry: move their near plane out
+        // to preserve depth precision across the larger landscape.
+        let near = (self.eye.distance(self.target) * 0.012).clamp(0.12, 8.);
         Mat4::perspective_rh_gl(
             (58. + self.speed_blend * 12.).to_radians(),
             aspect,
-            0.12,
+            near,
             2500.,
         ) * Mat4::look_at_rh(self.eye, self.target, Vec3::Y)
     }

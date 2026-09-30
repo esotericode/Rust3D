@@ -454,11 +454,16 @@ impl Player {
             self.wall_kicks += 1;
             self.action = "WALL KICK";
         }
-        let old_y = self.pos.y;
+        let old_pos = self.pos;
+        let old_y = old_pos.y;
         let was_grounded = self.grounded;
+        let followed_surface = was_grounded
+            && world
+                .continuous_surface(old_pos.x, old_pos.z)
+                .is_some_and(|s| (s.0 - old_y).abs() < 0.02);
         self.move_horizontal(world, dt);
         // Climb the continuous ramp surface, but never snap an airborne player up.
-        if was_grounded {
+        if followed_surface {
             if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
                 let reach = 0.16 + self.speed() * dt * 1.5;
                 if (h - old_y).abs() <= reach && self.pos.y <= old_y + reach {
@@ -697,7 +702,11 @@ impl Player {
                     self.velocity.y.max(0.) * dt * (step + 1) as f32 / steps as f32
                 };
             if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
-                if self.grounded && (h - previous.y).abs() <= 0.28 {
+                let follows = self.grounded
+                    && world
+                        .continuous_surface(previous.x, previous.z)
+                        .is_some_and(|s| (s.0 - previous.y).abs() < 0.02);
+                if follows && (h - previous.y).abs() <= 0.28 {
                     self.pos.y = h;
                     self.ground_normal = n;
                 } else if path_y < h && path_y + self.height() > h {

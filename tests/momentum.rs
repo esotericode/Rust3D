@@ -91,6 +91,30 @@ fn landscape_is_sixteen_times_larger_seeded_and_has_clear_region_spawns() {
     }
 }
 #[test]
+fn terrain_does_not_pull_grounded_players_through_the_original_lab_or_blocks() {
+    let w = World::default();
+    let mut p = Player::default();
+    for _ in 0..120 {
+        p.step(Input::default(), 0., &w, FIXED_DT);
+        assert!(
+            p.grounded && !p.crushed && p.pos.y.abs() < 0.001,
+            "lab support lost: {p:?}"
+        );
+    }
+    let mut w = slope(0.4);
+    w.solids
+        .push(Solid::new(vec3(0., 99.8, 0.), vec3(12., 2.4, 12.), NAVY));
+    let mut p = at(vec3(0., 101., 0.));
+    for _ in 0..120 {
+        p.step(Input::default(), 0., &w, FIXED_DT);
+        assert!(
+            p.grounded && !p.crushed && (p.pos.y - 101.).abs() < 0.001,
+            "block support lost: {p:?}"
+        );
+    }
+}
+
+#[test]
 fn heightfield_collision_matches_rendered_triangle_centres_and_has_no_tile_seams() {
     let t = Terrain::highlands();
     for m in t.meshes() {

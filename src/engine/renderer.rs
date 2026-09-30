@@ -469,7 +469,7 @@ fn make_target(ctx: &mut dyn RenderingBackend, size: (u32, u32)) -> (RenderPass,
         width: size.0,
         height: size.1,
         // Thin surface caps and the courtyard skirt need more precision over
-        // the 550 m view range than a 16-bit depth buffer can provide.
+        // the expanded view range than a 16-bit depth buffer can provide.
         format: TextureFormat::Depth32,
         sample_count: if ctx.info().features.resolve_attachments {
             4

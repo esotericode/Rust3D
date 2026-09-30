@@ -187,7 +187,9 @@ fn landscape_height(x: f32, z: f32) -> f32 {
         .max((z + 25.).abs() - 210.)
         .max(0.);
     let blend = smooth(reserve / 85.);
-    h.max(0.) * blend - 0.045 * (1. - blend)
+    // Keep terrain well below the courtyard's rendered skirt and floor. Close
+    // overlapping surfaces produce distant depth stripes in the large overview.
+    h.max(0.) * blend - 0.5 * (1. - blend)
 }
 pub struct Seeded(pub u32);
 impl Seeded {

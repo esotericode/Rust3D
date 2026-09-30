@@ -8,7 +8,7 @@ pub struct Vertex {
     pub color: [f32; 3],
     pub uv: [f32; 2],
     pub tangent: [f32; 3],
-    /// 0 = concrete, 1 = courtyard pavers, 2 = markings, 3 = painted metal, 4 = rubber.
+    /// 0 = concrete, 1 = pavers, 2 = markings, 3 = paint, 4 = rubber, 5 = terrain.
     pub style: f32,
 }
 
