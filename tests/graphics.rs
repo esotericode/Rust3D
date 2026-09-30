@@ -31,7 +31,7 @@ fn rounded_geometry_preserves_bounds_and_has_smooth_unit_normals() {
             && (max - (center + half)).length() < 0.0001
             && diagonal
     );
-    for t in mesh.indices.chunks_exact(3) {
+    for t in mesh.indices.as_chunks::<3>().0 {
         let (a, b, c) = (
             &mesh.vertices[t[0] as usize],
             &mesh.vertices[t[1] as usize],

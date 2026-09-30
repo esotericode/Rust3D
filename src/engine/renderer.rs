@@ -410,7 +410,9 @@ impl Renderer {
 /// Markings, beacons and dust do not cast distracting tiny shadows.
 pub fn shadow_indices(mesh: &Mesh) -> Vec<u16> {
     mesh.indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter(|tri| mesh.vertices[tri[0] as usize].style != 2.)
         .flatten()
         .copied()
