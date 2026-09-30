@@ -6,6 +6,7 @@ pub mod lighting;
 pub mod mesh;
 pub mod physics;
 pub mod renderer;
+pub mod terrain;
 pub mod ui;
 
 /// The simulation runs independently of rendering at 120 Hz.

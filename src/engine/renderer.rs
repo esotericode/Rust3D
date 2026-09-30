@@ -12,6 +12,8 @@ pub struct GpuMesh {
     shadow_bindings: Bindings,
     count: i32,
     shadow_count: i32,
+    min: Vec3,
+    max: Vec3,
 }
 pub struct Renderer {
     pub ctx: Box<dyn RenderingBackend>,
@@ -187,6 +189,8 @@ impl Renderer {
             shadow_bindings: stream_shadow,
             count: 0,
             shadow_count: 0,
+            min: Vec3::ZERO,
+            max: Vec3::ZERO,
         };
         let size = (1280, 720);
         let (target, color) = make_target(ctx.as_mut(), size);
@@ -278,6 +282,18 @@ impl Renderer {
             shadow_bindings,
             count: mesh.indices.len() as i32,
             shadow_count: indices.len() as i32,
+            min: mesh
+                .vertices
+                .iter()
+                .fold(Vec3::splat(f32::INFINITY), |a, v| {
+                    a.min(Vec3::from_array(v.pos))
+                }),
+            max: mesh
+                .vertices
+                .iter()
+                .fold(Vec3::splat(f32::NEG_INFINITY), |a, v| {
+                    a.max(Vec3::from_array(v.pos))
+                }),
         }
     }
     fn stream_vertices(&mut self, mesh: &Mesh) {
@@ -288,7 +304,7 @@ impl Renderer {
         );
     }
     /// Both passes use the same interpolated moving platforms/character pose.
-    pub fn shadows(&mut self, scene: &GpuMesh, dynamic: &Mesh, focus: Vec3) {
+    pub fn shadows(&mut self, scene: &[GpuMesh], dynamic: &Mesh, focus: Vec3) {
         self.light_matrix = shadow_matrix(focus);
         self.ctx.begin_pass(
             Some(self.shadow_target),
@@ -299,8 +315,23 @@ impl Renderer {
             .apply_uniforms(UniformsSource::table(&MatrixUniforms {
                 matrix: self.light_matrix.to_cols_array(),
             }));
-        self.ctx.apply_bindings(&scene.shadow_bindings);
-        self.ctx.draw(0, scene.shadow_count, 1);
+        for mesh in scene {
+            let mut min = Vec3::splat(f32::INFINITY);
+            let mut max = Vec3::splat(f32::NEG_INFINITY);
+            for x in [mesh.min.x, mesh.max.x] {
+                for y in [mesh.min.y, mesh.max.y] {
+                    for z in [mesh.min.z, mesh.max.z] {
+                        let p = self.light_matrix.transform_point3(Vec3::new(x, y, z));
+                        min = min.min(p);
+                        max = max.max(p);
+                    }
+                }
+            }
+            if min.cmple(Vec3::ONE).all() && max.cmpge(Vec3::NEG_ONE).all() {
+                self.ctx.apply_bindings(&mesh.shadow_bindings);
+                self.ctx.draw(0, mesh.shadow_count, 1);
+            }
+        }
         self.stream_vertices(dynamic);
         let indices = shadow_indices(dynamic);
         self.ctx.buffer_update(

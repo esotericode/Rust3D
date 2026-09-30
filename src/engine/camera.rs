@@ -10,6 +10,7 @@ pub struct Camera {
     pub eye: Vec3,
     boom: f32,
     manual_time: f32,
+    speed_blend: f32,
 }
 
 pub fn angle_delta(from: f32, to: f32) -> f32 {
@@ -25,6 +26,7 @@ impl Camera {
             eye: Vec3::ZERO,
             boom: 10.,
             manual_time: 0.,
+            speed_blend: 0.,
         };
         c.eye = c.target + c.direction() * c.boom;
         c
@@ -53,6 +55,8 @@ impl Camera {
         dt: f32,
     ) {
         self.manual_time = (self.manual_time - dt).max(0.);
+        let goal = ((player.speed() - 12.) / 45.).clamp(0., 1.);
+        self.speed_blend += (goal - self.speed_blend) * (1. - (-3. * dt).exp());
         if auto_align && player.grounded && player.speed() > 3. && self.manual_time <= 0. {
             self.yaw += angle_delta(self.yaw, player.facing) * (1. - (-1.6 * dt).exp());
         }
@@ -87,7 +91,8 @@ impl Camera {
             self.target = goal;
         }
         let direction = self.direction();
-        let offset = direction * self.distance;
+        let distance = self.distance + self.speed_blend * 4.;
+        let offset = direction * distance;
         let mut fraction = 1_f32;
         // Sweep a padded camera boom rather than sampling block corners. Retract
         // immediately to avoid clipping; recover distance smoothly when clear.
@@ -107,12 +112,17 @@ impl Camera {
             if world.ramps.iter().any(|r| {
                 r.height(p.x, p.z)
                     .is_some_and(|h| p.y <= h + 0.28 && p.y >= r.min.y - 0.28)
-            }) {
+            }) || world
+                .terrain
+                .as_ref()
+                .and_then(|field| field.sample(p.x, p.z))
+                .is_some_and(|s| p.y <= s.0 + 0.28)
+            {
                 fraction = fraction.min((i - 1) as f32 / 100.);
                 break;
             }
         }
-        let safe = (self.distance * fraction).max(0.05);
+        let safe = (distance * fraction).max(0.05);
         self.boom = if safe < self.boom {
             safe
         } else {
@@ -127,8 +137,12 @@ impl Camera {
         c
     }
     pub fn matrix(&self, aspect: f32) -> Mat4 {
-        Mat4::perspective_rh_gl(58_f32.to_radians(), aspect, 0.08, 550.)
-            * Mat4::look_at_rh(self.eye, self.target, Vec3::Y)
+        Mat4::perspective_rh_gl(
+            (58. + self.speed_blend * 12.).to_radians(),
+            aspect,
+            0.12,
+            2500.,
+        ) * Mat4::look_at_rh(self.eye, self.target, Vec3::Y)
     }
 }
 fn ray_box(start: Vec3, delta: Vec3, min: Vec3, max: Vec3) -> Option<f32> {

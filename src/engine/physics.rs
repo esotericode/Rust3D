@@ -10,6 +10,13 @@ const GRAVITY: f32 = 28.0;
 pub const WALK_SPEED: f32 = 7.2;
 pub const SPRINT_SPEED: f32 = 10.5;
 pub const WALL_GRACE: f32 = 0.035;
+pub const WALKABLE_NORMAL_Y: f32 = 0.64;
+
+/// Earned speed has no hard cap. Each manoeuvre supplies less extra speed as
+/// kinetic energy rises; drag, braking and collisions provide practical limits.
+pub fn momentum_gain(speed: f32, impulse: f32) -> f32 {
+    impulse / (1. + (speed.max(0.) / 22.).powf(1.5))
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Move {
@@ -52,6 +59,12 @@ pub struct Player {
     pub rollouts: u32,
     pub landings: u32,
     pub impact_speed: f32,
+    pub ground_normal: Vec3,
+    pub peak_speed: f32,
+    pub chain: u32,
+    pub last_gain: f32,
+    gain_time: f32,
+    landing_grace: f32,
     dive_used: bool,
     coyote: f32,
     jump_buffer: f32,
@@ -87,6 +100,12 @@ impl Default for Player {
             rollouts: 0,
             landings: 0,
             impact_speed: 0.,
+            ground_normal: Vec3::Y,
+            peak_speed: 0.,
+            chain: 0,
+            last_gain: 0.,
+            gain_time: 0.,
+            landing_grace: 0.,
             dive_used: false,
             coyote: 0.1,
             jump_buffer: 0.,
@@ -160,6 +179,24 @@ impl Player {
     }
     pub fn step(&mut self, input: Input, yaw: f32, world: &World, dt: f32) {
         self.crushed = false;
+        self.gain_time = (self.gain_time - dt).max(0.);
+        self.landing_grace = (self.landing_grace - dt).max(0.);
+        let retained_landing_grace = self.landing_grace;
+        if self.grounded {
+            self.ground_normal = world
+                .ground_surface(self.pos)
+                .filter(|s| (s.0 - self.pos.y).abs() < 0.3)
+                .map_or(Vec3::Y, |s| s.1);
+            if self.ground_normal.y < 0.9999 {
+                let speed = self.velocity.length();
+                let tangent =
+                    self.velocity - self.ground_normal * self.velocity.dot(self.ground_normal);
+                self.velocity = tangent.normalize_or_zero() * speed;
+                let gravity = Vec3::NEG_Y * GRAVITY;
+                self.velocity +=
+                    (gravity - self.ground_normal * gravity.dot(self.ground_normal)) * dt;
+            }
+        }
         if self.grounded {
             if let Some(p) = self.ground_platform.and_then(|i| world.platforms.get(i)) {
                 self.pos += p.delta;
@@ -208,6 +245,13 @@ impl Player {
                 - std::f32::consts::PI;
             self.facing += difference.clamp(-18. * dt, 18. * dt);
         }
+        // Keep the upward component earned on a slope when launching, so a
+        // fast uphill long jump does not immediately collide with the hill.
+        let slope_launch = if self.grounded && self.ground_normal != Vec3::Y {
+            self.velocity.y.max(0.)
+        } else {
+            0.
+        };
         // A dive can happen once per flight. Its landing becomes a short slide;
         // a fresh jump or dive press rolls out, including a buffered landing press.
         if self.motion == Move::Slide && !self.grounded {
@@ -218,7 +262,7 @@ impl Player {
             if (self.jump_buffer > 0. || input.dive) && self.can_stand(world) {
                 self.motion = Move::Rollout;
                 self.motion_time = 0.;
-                self.velocity.y = 7.6;
+                self.velocity.y = 7.6 + slope_launch;
                 self.inherit_platform();
                 let direction = Vec3::new(self.velocity.x, 0., self.velocity.z).normalize_or_zero();
                 let direction = if direction == Vec3::ZERO {
@@ -226,14 +270,19 @@ impl Player {
                 } else {
                     direction
                 };
-                let speed = self.speed().clamp(8., 15.);
+                let speed = self.boost_speed(self.speed().max(8.), 3.8);
                 self.velocity.x = direction.x * speed;
                 self.velocity.z = direction.z * speed;
                 self.grounded = false;
                 self.coyote = 0.;
                 self.jump_buffer = 0.;
                 self.rollouts += 1;
-            } else if (self.motion_time > 0.55 || self.speed() < 2.) && self.can_stand(world) {
+            } else if ((self.motion_time > 0.55
+                && !input.sprint
+                && self.ground_normal.y >= WALKABLE_NORMAL_Y)
+                || self.speed() < 2.)
+                && self.can_stand(world)
+            {
                 self.motion = Move::Normal;
                 self.dive_used = false;
             }
@@ -248,11 +297,12 @@ impl Player {
             } else {
                 direction
             };
-            let speed = (self.speed() + 3.).clamp(13., 18.);
+            let direction = self.launch_direction(direction);
+            let speed = self.boost_speed(self.speed().max(10.), 4.);
             self.velocity.x = direction.x * speed;
             self.velocity.z = direction.z * speed;
             self.velocity.y = if self.grounded {
-                5.2
+                5.2 + slope_launch
             } else {
                 (self.velocity.y + 2.).clamp(-10., 4.)
             };
@@ -281,7 +331,13 @@ impl Player {
             WALK_SPEED
         };
         let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
-        let accel = if special {
+        let accel = if self.grounded && self.ground_normal.y < WALKABLE_NORMAL_Y {
+            if strength < 0.001 {
+                1.5
+            } else {
+                7.
+            }
+        } else if special {
             7.
         } else if self.grounded {
             if strength < 0.001 {
@@ -291,6 +347,8 @@ impl Player {
             } else {
                 70.
             }
+        } else if strength > 0.001 && strength <= 0.65 {
+            36.
         } else if self.long_air {
             10.
         } else {
@@ -304,6 +362,16 @@ impl Player {
                 wish * max_speed * strength
             };
             let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+            let preserve = horizontal.length() > max_speed * strength + 0.1
+                && strength > 0.65
+                && horizontal.normalize_or_zero().dot(wish) > 0.05;
+            let target = if preserve && !special {
+                // Steer the velocity rather than replacing earned speed with a
+                // walking target. Faster travel needs a wider turning radius.
+                steer(horizontal, wish, if self.grounded { 4.5 } else { 2.2 }, dt)
+            } else {
+                target
+            };
             let delta = if wish == Vec3::ZERO && !self.grounded {
                 Vec3::ZERO
             } else {
@@ -312,6 +380,12 @@ impl Player {
             let change = delta.clamp_length_max(accel * dt);
             self.velocity.x += change.x;
             self.velocity.z += change.z;
+            if preserve && self.grounded && self.landing_grace <= 0. {
+                self.drag((0.15 + 0.0001 * self.speed().powi(2)) * dt);
+            }
+            if strength > 0.001 && horizontal.dot(wish) < -0.1 {
+                self.chain = 0;
+            }
         }
         if special && self.speed() > 1. {
             let direction = vec3(self.velocity.x, 0., self.velocity.z);
@@ -323,16 +397,16 @@ impl Player {
             let slowed = if !self.can_stand(world) && strength > 0. {
                 horizontal + (wish * 3. * strength - horizontal).clamp_length_max(20. * dt)
             } else {
-                horizontal - horizontal.clamp_length_max(12. * dt)
+                horizontal - horizontal.clamp_length_max(2.8 * dt)
             };
             self.velocity.x = slowed.x;
             self.velocity.z = slowed.z;
         }
         if self.motion == Move::Normal && self.jump_buffer > 0. && self.coyote > 0. {
             self.velocity.y = if input.sprint && self.speed() > 3. {
-                9.0
+                9.0 + slope_launch
             } else {
-                11.2
+                11.2 + slope_launch
             };
             self.long_air = input.sprint && self.speed() > 3.;
             self.jump_cuttable = !self.long_air;
@@ -342,8 +416,10 @@ impl Player {
                 } else {
                     vec3(self.velocity.x, 0., self.velocity.z).normalize_or_zero()
                 };
-                self.velocity.x = launch.x * 15.;
-                self.velocity.z = launch.z * 15.;
+                let launch = self.launch_direction(launch);
+                let speed = self.boost_speed(self.speed().max(10.5), 6.);
+                self.velocity.x = launch.x * speed;
+                self.velocity.z = launch.z * speed;
                 self.long_jumps += 1;
                 self.action = "LONG JUMP";
             } else {
@@ -363,7 +439,9 @@ impl Player {
             && self.wall_normal.dot(self.last_wall) < 0.8
         {
             let tangent = wish - self.wall_normal * wish.dot(self.wall_normal);
-            self.velocity = self.wall_normal * 11.5 + Vec3::Y * 11.5 + tangent * 3.;
+            let retained = self.velocity - self.wall_normal * self.velocity.dot(self.wall_normal);
+            self.velocity =
+                self.wall_normal * 11.5 + vec3(retained.x, 11.5, retained.z) + tangent * 3.;
             self.air_carry = Vec3::ZERO;
             self.ground_platform = None;
             self.last_wall = self.wall_normal;
@@ -380,12 +458,12 @@ impl Player {
         let was_grounded = self.grounded;
         self.move_horizontal(world, dt);
         // Climb the continuous ramp surface, but never snap an airborne player up.
-        if was_grounded && self.velocity.y <= 0. {
-            for r in &world.ramps {
-                if let Some(h) = r.height(self.pos.x, self.pos.z) {
-                    if h >= old_y - 0.15 && h <= old_y + 0.25 && self.pos.y <= old_y + 0.001 {
-                        self.pos.y = h;
-                    }
+        if was_grounded {
+            if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
+                let reach = 0.16 + self.speed() * dt * 1.5;
+                if (h - old_y).abs() <= reach && self.pos.y <= old_y + reach {
+                    self.pos.y = h;
+                    self.ground_normal = n;
                 }
             }
         }
@@ -398,7 +476,12 @@ impl Player {
             } else {
                 GRAVITY
             };
-        self.velocity.y = (self.velocity.y - gravity * dt).max(-42.);
+        let ground_vertical = self.velocity.y;
+        self.velocity.y = if was_grounded {
+            -GRAVITY * dt
+        } else {
+            (self.velocity.y - gravity * dt).max(-62.)
+        };
         self.pos.y += self.velocity.y * dt;
         self.grounded = false;
         let carried_platform = self.ground_platform;
@@ -433,8 +516,31 @@ impl Player {
                 if self.velocity.y <= 0. && before_y >= h - 0.15 && self.pos.y <= h {
                     self.pos.y = h;
                     self.land();
+                    self.ground_normal = r.normal();
                 }
             }
+        }
+        if let Some((h, n)) = world
+            .terrain
+            .as_ref()
+            .and_then(|t| t.sample(self.pos.x, self.pos.z))
+        {
+            if self.pos.y < h && (before_y >= h - 0.2 || was_grounded) {
+                self.pos.y = h;
+                self.land();
+                self.ground_normal = n;
+            }
+        }
+        if self.grounded {
+            if was_grounded {
+                self.landing_grace = retained_landing_grace;
+            }
+            self.velocity.y = -(self.ground_normal.x * self.velocity.x
+                + self.ground_normal.z * self.velocity.z)
+                / self.ground_normal.y.max(0.1);
+        } else if was_grounded {
+            // The slope's upward velocity launches naturally over a crest.
+            self.velocity.y = ground_vertical - GRAVITY * dt;
         }
         if was_grounded && !self.grounded {
             // Walking off inherits the same motion as jumping; coyote jumps use
@@ -460,6 +566,9 @@ impl Player {
         }
         if self.grounded && self.motion == Move::Normal {
             self.dive_used = false;
+            if self.ground_normal.y < WALKABLE_NORMAL_Y {
+                self.action = "SLOPE SLIDE";
+            }
         }
         if self.motion == Move::Rollout && self.motion_time >= 0.45 {
             self.motion = Move::Normal;
@@ -472,7 +581,9 @@ impl Player {
                 Move::Normal => unreachable!(),
             };
         } else if self.grounded {
-            self.action = if self.speed() > 0.5 {
+            self.action = if self.ground_normal.y < WALKABLE_NORMAL_Y {
+                "SLOPE SLIDE"
+            } else if self.speed() > 0.5 {
                 if input.sprint {
                     "SPRINT"
                 } else {
@@ -485,6 +596,10 @@ impl Player {
             self.action = "AIRBORNE";
         }
         self.animation_phase += self.speed() * dt * 2.6;
+        self.peak_speed = self.peak_speed.max(self.speed());
+        if self.gain_time <= 0. && self.grounded && self.motion == Move::Normal {
+            self.chain = 0;
+        }
     }
 
     fn can_fit(&self, world: &World) -> bool {
@@ -508,6 +623,8 @@ impl Player {
             self.motion_time = 0.;
         }
         self.grounded = true;
+        self.ground_normal = Vec3::Y;
+        self.landing_grace = 0.10;
         self.air_carry = Vec3::ZERO;
         self.ground_platform = None;
         self.support_velocity = Vec3::ZERO;
@@ -517,6 +634,27 @@ impl Player {
         self.wall_grace = 0.;
         self.jump_cuttable = false;
         self.wall_contact_age = 0.;
+    }
+
+    fn boost_speed(&mut self, speed: f32, impulse: f32) -> f32 {
+        self.last_gain = momentum_gain(speed, impulse);
+        self.chain += 1;
+        self.gain_time = 1.5;
+        speed + self.last_gain
+    }
+    fn launch_direction(&self, wish: Vec3) -> Vec3 {
+        let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+        if horizontal.length() < 12. {
+            wish.normalize_or_zero()
+        } else {
+            steer(horizontal, wish, 2., 0.12).normalize_or_zero()
+        }
+    }
+    fn drag(&mut self, amount: f32) {
+        let h = vec3(self.velocity.x, 0., self.velocity.z);
+        let v = h - h.clamp_length_max(amount);
+        self.velocity.x = v.x;
+        self.velocity.z = v.z;
     }
 
     fn contact(&mut self, normal: Vec3) {
@@ -540,7 +678,8 @@ impl Player {
         };
         let delta = (vec3(self.velocity.x, 0., self.velocity.z) + carry) * dt;
         let steps = (delta.length() / (RADIUS * 0.5)).ceil().max(1.) as usize;
-        for _ in 0..steps {
+        for step in 0..steps {
+            let previous = self.pos;
             self.pos += (vec3(self.velocity.x, 0., self.velocity.z)
                 + if self.grounded {
                     Vec3::ZERO
@@ -548,6 +687,35 @@ impl Player {
                     self.air_carry
                 })
                 * (dt / steps as f32);
+            // Horizontal and vertical resolution are separate. Test rising
+            // launches at their height along the swept path, not at the old
+            // feet height, which would falsely ground an uphill jump.
+            let path_y = self.pos.y
+                + if self.grounded {
+                    0.
+                } else {
+                    self.velocity.y.max(0.) * dt * (step + 1) as f32 / steps as f32
+                };
+            if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
+                if self.grounded && (h - previous.y).abs() <= 0.28 {
+                    self.pos.y = h;
+                    self.ground_normal = n;
+                } else if path_y < h && path_y + self.height() > h {
+                    // Sweep every short horizontal segment against the field;
+                    // fast travel must not tunnel into an uphill face.
+                    let penetration = (h - path_y) * n.y;
+                    self.pos += n * penetration;
+                    let into = self.velocity.dot(n);
+                    if into < 0. {
+                        self.velocity -= n * into;
+                    }
+                    if n.y >= WALKABLE_NORMAL_Y {
+                        self.pos.y = h;
+                        self.land();
+                        self.ground_normal = n;
+                    }
+                }
+            }
             for _ in 0..3 {
                 for s in world.collision_solids() {
                     if self.pos.y >= s.max.y - 0.001
@@ -579,8 +747,8 @@ impl Player {
                     let x = self.pos.x.clamp(r.min.x, r.max.x);
                     let z = self.pos.z.clamp(r.min.z, r.max.z);
                     if horizontal_gap(self.pos, r.min, r.max).length_squared() < RADIUS * RADIUS
-                        && self.pos.y + self.height() > r.min.y
-                        && r.height(x, z).is_some_and(|h| self.pos.y + 0.25 < h)
+                        && path_y + self.height() > r.min.y
+                        && r.height(x, z).is_some_and(|h| path_y + 0.25 < h)
                     {
                         self.push_circle(r.min, r.max, RADIUS);
                     }
@@ -615,6 +783,23 @@ impl Player {
         self.pos += normal * (penetration + 0.00001);
         self.contact(normal);
     }
+}
+fn steer(horizontal: Vec3, wish: Vec3, rate: f32, dt: f32) -> Vec3 {
+    let speed = horizontal.length();
+    if speed < 0.001 || wish == Vec3::ZERO {
+        return horizontal;
+    }
+    let angle = horizontal.x.atan2(horizontal.z);
+    let target = wish.x.atan2(wish.z);
+    let turn = angle_delta(angle, target).clamp(
+        -rate * dt / (1. + speed / 28.),
+        rate * dt / (1. + speed / 28.),
+    );
+    vec3(
+        (angle + turn).sin() * speed,
+        0.,
+        (angle + turn).cos() * speed,
+    )
 }
 fn horizontal_gap(p: Vec3, min: Vec3, max: Vec3) -> Vec2 {
     Vec2::new(p.x - p.x.clamp(min.x, max.x), p.z - p.z.clamp(min.z, max.z))

@@ -1,16 +1,21 @@
 # Stride / Rust3D
 
 A custom Rust 3D engine and third-person movement playground. Run, jump,
-long jump, dive, roll out, and climb by kicking between walls. Version 0.5 adds
-sun shadows, rounded geometry and textured materials. **Skyway** offers eight
+long jump, dive, roll out, and climb by kicking between walls. Version 0.6 adds
+the **1440 x 1680 metre Highlands**, sixteen times the previous map's area,
+with rolling hills, open speed lanes, mountains above 200 m and seeded blocks
+and ramps. Slope gravity and uncapped, diminishing movement gains let you build
+momentum through long jumps, dives and rollouts. **Skyway** offers eight
 progressively harder sections with 46 ordered components,
-16 moving platforms, lifts, fixed rest decks and section practice. The yard is
-now **360 x 420 metres**, with eleven ramps, extra block gardens, the original
+16 moving platforms, lifts, fixed rest decks and section practice. The original
+**360 x 420 metre** yard remains inside Highlands, with eleven ramps, block gardens, the
 14.3 metre tower and seven-beacon movement lab.
 
 ## Play on Windows
 
-Download **Stride-Windows.zip** from the latest successful
+Download **Stride-Windows.zip** from the
+[latest GitHub release](https://github.com/esotericode/Rust3D/releases/latest).
+Development builds are also available in the successful
 [Build and test Stride workflow](https://github.com/esotericode/Rust3D/actions/workflows/build.yml).
 Extract it, open `Stride-Windows`, and **double-click `Stride.exe`**.
 No installation or Rust setup required. Needs 64-bit Windows 10/11 and an
@@ -49,7 +54,7 @@ buttons or keys; the old X, R, and Enter reset shortcuts are removed.
 Dive on the ground or once during an airborne jump. It preserves forward
 momentum, lands in a short slide, and can chain into a rollout hop. A jump
 pressed shortly before landing is buffered. Without another press, the slide
-recovers automatically. Under low ceilings, it stays low and permits slow
+recovers automatically; hold Sprint to extend it. Under low ceilings, it stays low and permits slow
 movement until there is enough room to stand.
 
 Gamepads use gilrs mappings and support hotplugging. The default circular
@@ -64,6 +69,25 @@ Wall kicks require a fresh jump press during the first 120 ms of wall contact,
 with 35 ms of grace after leaving contact. Alternate walls to climb. Beacons
 activate in order and save your respawn position. Falling resets automatically.
 The timer begins on movement; best times last for the current session.
+
+## Highlands and momentum in 0.6
+
+Choose **Pause → Highlands / Momentum Routes** for five starting regions:
+Long Run, Rolling Basin, Ridge Descent, Mountain Pass and Block Fields. The
+larger landscape adds 180 seeded blocks and 40 ramps, while keeping the old
+routes and an open 550 m speed lane clear. Region travel sets a respawn point.
+
+Slope following keeps feet on the rendered terrain. Gravity adds speed downhill
+and spends it uphill; steep faces slide, and uphill launches retain upward
+momentum. Long jumps, dives and rollouts add speed with diminishing returns,
+without a hard horizontal cap. Strong forward input and air coasting retain
+earned speed. Lighter analog input or opposite input brakes for precise pads;
+fast turns require wider arcs. Speed, peak and recent chain appear in the HUD.
+The camera smoothly widens and pulls back at speed. Collision is subdivided by
+distance to protect high-speed movement against thin obstacles.
+
+See [LANDSCAPE.md](LANDSCAPE.md) for regions and [MOVEMENT.md](MOVEMENT.md) for
+design references, movement rules and testing/tuning targets.
 
 ## Graphics in 0.5
 
@@ -167,6 +191,7 @@ procedural geometry, shaders, HUD font, camera, and game logic.
 | File | Responsibility |
 | --- | --- |
 | `src/engine/physics.rs` | Acceleration, air control, jump buffering, coyote time, wall kicks and collision |
+| `src/engine/terrain.rs` | Shared heightfield triangles, smooth terrain meshes and region starting points |
 | `src/engine/renderer.rs` | World, shadow, sky and UI passes, textures, buffers and capture |
 | `src/engine/lighting.rs` / `src/engine/shaders/` | Stable sun shadows, procedural material texture and lighting shaders |
 | `src/engine/mesh.rs` | Procedural geometry |
@@ -180,16 +205,22 @@ procedural geometry, shaders, HUD font, camera, and game logic.
 | `src/app.rs` | Game loop, input, course logic and animated robot |
 | `src/menu.rs` / `src/settings.rs` | Options, menu navigation and saved preferences |
 
-This prototype uses a variable-height upright capsule against blocks, ramps and
+This prototype uses a variable-height upright capsule against heightfield terrain, blocks, ramps and
 kinematic platforms. Arbitrary mesh collision and an editor are future work.
 Tests cover platform carrying through reversals, inherited jump momentum,
 lift landings, head pinches, checkpoints, practice rules, dive/rollout,
-controller settings, camera behavior and the existing movement routes. A
+controller settings, camera behavior, slope gravity, high-speed chains,
+uphill launches, terrain agreement, thin-wall collision and existing routes. A
 lookahead test pilot completes all 46 course components using only gameplay
 inputs, from two different starting phases. CI renders the course and menus,
 and builds/tests on Windows. Physical controller, vibration and Windows audio
 playtesting remain hardware checks.
 All game geometry and UI glyphs are generated in code.
+
+To publish a release, push a branch named `release/v<package-version>` containing
+the reviewed build and RELEASE_NOTES.md. Its build workflow publishes that
+exact commit and Windows package only after the Linux and Windows jobs pass.
+The publish job has write access to repository contents; other jobs are read-only.
 
 ## License
 

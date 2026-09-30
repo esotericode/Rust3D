@@ -1,7 +1,7 @@
 name: Build and test Stride
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, 'codex/**', 'release/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -35,6 +35,13 @@ jobs:
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-view 4 --screenshot clockwork.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-menu --screenshot course-menu.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --materials-view --test-resolution 1920x1080 --screenshot materials.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --highlands-overview --screenshot highlands.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --region-view 0 --screenshot long-run.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --region-view 1 --screenshot basin.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --region-view 2 --screenshot ridge.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --region-view 3 --screenshot mountain.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --region-view 4 --screenshot block-fields.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --explore-menu --screenshot explore-menu.ppm
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -55,7 +62,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/Stride-Windows
           Copy-Item target/release/stride.exe dist/Stride-Windows/Stride.exe
-          Copy-Item PLAY.txt,COURSE.md,LICENSE,THIRD_PARTY.txt dist/Stride-Windows/
+          Copy-Item PLAY.txt,COURSE.md,MOVEMENT.md,LANDSCAPE.md,LICENSE,THIRD_PARTY.txt dist/Stride-Windows/
           Copy-Item -Recurse licenses dist/Stride-Windows/licenses
           Compress-Archive -Path dist/Stride-Windows -DestinationPath dist/Stride-Windows.zip
           Get-FileHash dist/Stride-Windows.zip -Algorithm SHA256 | Format-List | Out-File dist/SHA256.txt
@@ -66,3 +73,27 @@ jobs:
             dist/Stride-Windows.zip
             dist/SHA256.txt
           retention-days: 90
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/v')
+    needs: [validate, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Stride-Windows
+          path: release-assets
+      - name: Publish the tested Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          test "$GITHUB_REF_NAME" = "release/v$version"
+          gh release create "v$version" \
+            release-assets/Stride-Windows.zip release-assets/SHA256.txt \
+            --target "$GITHUB_SHA" --title "Stride $version - Highlands and Momentum" \
+            --notes-file RELEASE_NOTES.md --latest

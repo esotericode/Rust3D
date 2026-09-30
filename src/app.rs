@@ -12,6 +12,7 @@ use stride::{
         mesh::Mesh,
         physics::{Input, Move, Player},
         renderer::{viewport, GpuMesh, Renderer},
+        terrain::REGIONS,
         ui::{Ui, INK, MUTED, WHITE},
         FIXED_DT,
     },
@@ -21,7 +22,7 @@ use stride::{
 
 pub struct Game {
     renderer: Renderer,
-    scenery: GpuMesh,
+    scenery: Vec<GpuMesh>,
     world: World,
     player: Player,
     previous_player: Player,
@@ -55,6 +56,7 @@ pub struct Game {
     course_run: Option<Run>,
     course_best: Option<f32>,
     course_overview: bool,
+    highlands_overview: bool,
     frames: u32,
     screenshot: Option<String>,
     smoke: bool,
@@ -66,7 +68,10 @@ impl Game {
         let world = World::default();
         let mut renderer = Renderer::new();
         renderer.resize(settings.size());
-        let scenery = renderer.upload(&build_scene(&world));
+        let scenery = build_scene(&world)
+            .iter()
+            .map(|m| renderer.upload(m))
+            .collect();
         let args: Vec<String> = std::env::args().collect();
         let screenshot = args
             .iter()
@@ -104,11 +109,12 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "STRIDE 0.5 / NEW LIGHTING AND MATERIALS".into(),
+            toast_text: "STRIDE 0.6 / HIGHLANDS AND MOMENTUM".into(),
             best: None,
             course_run: None,
             course_best: None,
             course_overview: args.iter().any(|s| s == "--course-overview"),
+            highlands_overview: args.iter().any(|s| s == "--highlands-overview"),
             frames: 0,
             screenshot,
             smoke: args.iter().any(|s| s == "--smoke-test"),
@@ -163,6 +169,18 @@ impl Game {
         if game.course_overview {
             game.start_course(None);
             game.toast = 0.;
+        }
+        if let Some(region) = args
+            .iter()
+            .position(|s| s == "--region-view")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            game.travel(region.min(4));
+            game.toast = 0.;
+        }
+        if args.iter().any(|s| s == "--explore-menu") {
+            game.open(Screen::Explore);
         }
         game.sync_render();
         if args.iter().any(|s| s == "--controller-options") {
@@ -231,6 +249,31 @@ impl Game {
         } else {
             "SKYWAY / EIGHT SECTIONS. REACH THE SUMMIT.".into()
         };
+    }
+    fn travel(&mut self, region: usize) {
+        let region = &REGIONS[region];
+        let h = self
+            .world
+            .terrain
+            .as_ref()
+            .unwrap()
+            .sample(region.point.x, region.point.y)
+            .unwrap()
+            .0;
+        self.course_run = None;
+        self.checkpoint = vec3(region.point.x, h, region.point.y);
+        self.player = Player::default();
+        self.player.respawn(self.checkpoint + Vec3::Y * 0.08);
+        self.camera = Camera::new(self.player.pos);
+        self.camera.update(self.player.pos, &self.world, 1.);
+        self.sync_render();
+        self.dust.clear();
+        self.step_distance = 0.;
+        self.elapsed = 0.;
+        self.started = false;
+        self.collected = 0;
+        self.toast = 5.;
+        self.toast_text = format!("HIGHLANDS / {}", region.name);
     }
     fn respawn(&mut self) {
         if let Some(run) = &mut self.course_run {
@@ -314,6 +357,11 @@ impl Game {
             Action::Options => self.open(Screen::Options),
             Action::Help => self.open(Screen::Help),
             Action::Course => self.open(Screen::Course),
+            Action::Explore => self.open(Screen::Explore),
+            Action::Travel(region) => {
+                self.travel(region);
+                self.resume();
+            }
             Action::StartCourse => {
                 self.start_course(None);
                 self.resume();
@@ -581,6 +629,12 @@ impl Game {
         }
         self.dust.retain(|d| d.life > 0.);
     }
+    fn in_highlands(&self) -> bool {
+        self.player.pos.x < -90.
+            || self.player.pos.x > 290.
+            || self.player.pos.z < -245.
+            || self.player.pos.z > 195.
+    }
     fn hud(&self, matrix: Mat4) -> Ui {
         let (w, h) = (1280., 720.);
         let mut ui = Ui::default();
@@ -591,7 +645,7 @@ impl Game {
         ui.text(
             44.,
             110.,
-            &format!("FPS {:.0} / SIM 120 HZ / V0.5", self.fps),
+            &format!("FPS {:.0} / SIM 120 HZ / V0.6", self.fps),
             1.,
             MINT,
         );
@@ -602,11 +656,15 @@ impl Game {
             40.,
             &self.course_run.as_ref().map_or_else(
                 || {
-                    format!(
-                        "BEACONS {:02} / {:02}",
-                        self.collected,
-                        self.world.beacons.len()
-                    )
+                    if self.in_highlands() {
+                        "HIGHLANDS / FREE RUN".into()
+                    } else {
+                        format!(
+                            "BEACONS {:02} / {:02}",
+                            self.collected,
+                            self.world.beacons.len()
+                        )
+                    }
                 },
                 |r| {
                     format!(
@@ -674,6 +732,17 @@ impl Game {
             1.,
             MUTED,
         );
+        ui.rect(24., h - 206., 252., 34., INK);
+        ui.text(
+            40.,
+            h - 195.,
+            &format!(
+                "PEAK {:.1} / CHAIN {}",
+                self.player.peak_speed, self.player.chain
+            ),
+            1.15,
+            ORANGE,
+        );
         ui.rect(w - 442., h - 166., 418., 70., INK);
         if let Some(run) = &self.course_run {
             let section = run.section(&self.world.course);
@@ -729,6 +798,40 @@ impl Game {
                     }
                 }
             }
+        } else if self.in_highlands() {
+            let region = REGIONS
+                .iter()
+                .min_by(|a, b| {
+                    let p = Vec2::new(self.player.pos.x, self.player.pos.z);
+                    p.distance_squared(a.point)
+                        .total_cmp(&p.distance_squared(b.point))
+                })
+                .unwrap();
+            ui.text(
+                w - 425.,
+                h - 151.,
+                &format!("HIGHLANDS / {}", region.name),
+                1.1,
+                VIOLET,
+            );
+            ui.text(w - 425., h - 132., region.hint, 1., WHITE);
+            ui.text(
+                w - 425.,
+                h - 111.,
+                &format!(
+                    "X {:.0} / Z {:.0} / SLOPE {:.0} DEG",
+                    self.player.pos.x,
+                    self.player.pos.z,
+                    self.player
+                        .ground_normal
+                        .y
+                        .clamp(0., 1.)
+                        .acos()
+                        .to_degrees()
+                ),
+                1.,
+                MUTED,
+            );
         } else {
             ui.text(
                 w - 425.,
@@ -855,6 +958,10 @@ impl EventHandler for Game {
             camera.eye = vec3(265., 145., 245.);
             camera.target = vec3(135., 18., 72.);
         }
+        if self.highlands_overview {
+            camera.eye = vec3(100., 700., 1000.);
+            camera.target = vec3(100., 40., -25.);
+        }
         let player = self.player.interpolated(&self.previous_player, alpha);
         let matrix = camera.matrix(rw as f32 / rh as f32);
 
@@ -869,7 +976,9 @@ impl EventHandler for Game {
         );
         self.renderer.shadows(&self.scenery, &dynamic, player.pos);
         self.renderer.begin(matrix, camera.eye);
-        self.renderer.static_mesh(&self.scenery, matrix, camera.eye);
+        for mesh in &self.scenery {
+            self.renderer.static_mesh(mesh, matrix, camera.eye);
+        }
         self.renderer.dynamic(&dynamic, matrix, camera.eye, false);
         let hud = self.hud(matrix);
         self.renderer.dynamic(
@@ -1007,8 +1116,9 @@ impl EventHandler for Game {
     }
 }
 
-fn build_scene(world: &World) -> Mesh {
+fn build_scene(world: &World) -> Vec<Mesh> {
     let mut m = Mesh::default();
+    let mut meshes = world.terrain.as_ref().map_or_else(Vec::new, |t| t.meshes());
     for (i, s) in world.solids.iter().enumerate() {
         m.cube(
             (s.min + s.max) * 0.5,
@@ -1045,6 +1155,9 @@ fn build_scene(world: &World) -> Mesh {
                 MINT,
                 2.,
             );
+        }
+        if m.vertices.len() > 40000 {
+            meshes.push(std::mem::take(&mut m));
         }
     }
     for r in &world.ramps {
@@ -1160,7 +1273,8 @@ fn build_scene(world: &World) -> Mesh {
             0.,
         );
     }
-    m
+    meshes.push(m);
+    meshes
 }
 
 struct Dust {
@@ -1367,15 +1481,13 @@ mod graphics_budget_tests {
     fn authored_scene_and_animated_course_fit_gpu_index_budget() {
         let world = World::default();
         let scene = build_scene(&world);
-        assert!(
-            scene.vertices.len() < 60000,
-            "{} static vertices",
-            scene.vertices.len()
-        );
-        assert!(scene
-            .indices
-            .iter()
-            .all(|&i| (i as usize) < scene.vertices.len()));
+        for mesh in &scene {
+            assert!(mesh.vertices.len() < 60000);
+            assert!(mesh
+                .indices
+                .iter()
+                .all(|&i| (i as usize) < mesh.vertices.len()));
+        }
         let player = Player::default();
         let dynamic = build_dynamic(&world, &player, 0., 0, (&[], 0.), 0.5, None);
         assert!(dynamic.vertices.len() < 60000 && dynamic.indices.len() < 120000);

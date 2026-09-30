@@ -14,6 +14,7 @@ pub enum Screen {
     Help,
     ConfirmRestart,
     Course,
+    Explore,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
@@ -31,6 +32,8 @@ pub enum Action {
     StartCourse,
     Practice(usize),
     Playground,
+    Explore,
+    Travel(usize),
     Quit,
     Apply,
     Back,
@@ -61,7 +64,8 @@ impl Menu {
     }
     pub fn rows(&self) -> usize {
         match self.screen {
-            Some(Screen::Pause) => 8,
+            Some(Screen::Pause) => 9,
+            Some(Screen::Explore) => 6,
             Some(Screen::Course) => 10,
             Some(Screen::Options) => 8,
             Some(Screen::Camera) => 5,
@@ -141,6 +145,7 @@ impl Menu {
                 Action::RequestRestart,
                 Action::Course,
                 Action::Playground,
+                Action::Explore,
                 Action::Quit,
             ][self.selected],
             Some(Screen::Course) => match self.selected {
@@ -148,6 +153,13 @@ impl Menu {
                 1..=8 => Action::Practice(self.selected - 1),
                 _ => Action::Back,
             },
+            Some(Screen::Explore) => {
+                if self.selected < 5 {
+                    Action::Travel(self.selected)
+                } else {
+                    Action::Back
+                }
+            }
             Some(Screen::Options) => match self.selected {
                 3 => Action::Camera,
                 4 => Action::Controller,
@@ -228,6 +240,7 @@ impl Menu {
             match screen {
                 Screen::Pause => "TAKE A BREATHER",
                 Screen::Course => "SKYWAY / CHOOSE A RUN",
+                Screen::Explore => "HIGHLANDS / CHOOSE A REGION",
                 Screen::Options => "OPTIONS",
                 Screen::Camera => "CAMERA",
                 Screen::Controller => "CONTROLLER",
@@ -269,14 +282,14 @@ impl Menu {
             ui.text(
                 342.,
                 495.,
-                "DIVE ONCE PER FLIGHT. PRESS JUMP DURING THE LANDING SLIDE.",
+                "CHAIN LONG JUMP, DIVE AND ROLLOUT TO BUILD SPEED. DOWNHILL ADDS MORE.",
                 1.2,
                 MUTED,
             );
             ui.text(
                 342.,
                 520.,
-                "RESPAWN AND RESTART ARE MENU ACTIONS. RESTART NEEDS CONFIRMATION.",
+                "LIGHT STICK OR OPPOSITE INPUT BRAKES. HOLD SPRINT TO KEEP SLIDING.",
                 1.15,
                 MUTED,
             );
@@ -349,6 +362,7 @@ impl Menu {
                 "RESTART COURSE",
                 "SKYWAY / SECTION PRACTICE",
                 "RETURN TO PLAYGROUND",
+                "HIGHLANDS / MOMENTUM ROUTES",
                 "EXIT GAME",
             ],
             Screen::Course => &[
@@ -361,6 +375,14 @@ impl Menu {
                 "PRACTICE 6 / LEAP AND DIVE",
                 "PRACTICE 7 / HIGH HARBOR",
                 "PRACTICE 8 / SUMMIT",
+                "BACK",
+            ],
+            Screen::Explore => &[
+                "LONG RUN / OPEN SPEED LANE",
+                "ROLLING BASIN / HILLS",
+                "RIDGE DESCENT / DOWNHILL",
+                "MOUNTAIN PASS / STEEP SLOPES",
+                "BLOCK FIELDS / RAMPS AND BLOCKS",
                 "BACK",
             ],
             Screen::Options => &[
@@ -399,6 +421,36 @@ impl Menu {
             self.row(ui, i, 190. + i as f32 * 36., label, &values[i]);
         }
         match screen {
+            Screen::Explore => {
+                ui.text(
+                    342.,
+                    443.,
+                    "1440 X 1680 M / SIXTEEN TIMES THE ORIGINAL AREA",
+                    1.2,
+                    MINT,
+                );
+                ui.text(
+                    342.,
+                    473.,
+                    "CHAIN LONG JUMPS / DIVE / ROLLOUT. GAINS DIMINISH WITH SPEED.",
+                    1.1,
+                    MUTED,
+                );
+                ui.text(
+                    342.,
+                    503.,
+                    "DOWNHILL BUILDS SPEED. BRAKE AND STEER EARLY FOR CORNERS.",
+                    1.1,
+                    MUTED,
+                );
+                ui.text(
+                    342.,
+                    533.,
+                    "TRAVEL SETS YOUR RESPAWN POINT. RETURN TO PLAYGROUND IN PAUSE.",
+                    1.1,
+                    MUTED,
+                );
+            }
             Screen::Course => {
                 ui.text(
                     342.,
@@ -471,7 +523,7 @@ impl Menu {
             ),
             Screen::Pause => ui.text(
                 342.,
-                503.,
+                541.,
                 "ESC OR START TO RESUME. RESET ACTIONS LIVE HERE.",
                 1.3,
                 MUTED,
@@ -547,6 +599,7 @@ mod tests {
             Screen::Help,
             Screen::ConfirmRestart,
             Screen::Course,
+            Screen::Explore,
         ] {
             menu.open(screen, &settings);
             for i in 0..menu.rows() {

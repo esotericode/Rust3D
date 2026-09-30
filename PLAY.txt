@@ -1,5 +1,5 @@
 STRIDE / RUST3D MOVEMENT LAB
-Version 0.5.0
+Version 0.6.0
 
 GET GOING
 Extract the ZIP, open Stride-Windows, and double-click Stride.exe.
@@ -48,8 +48,28 @@ You can dive once per flight. Landing transitions into a short belly slide.
 Press Jump or Dive during that slide for a rollout hop with forward momentum.
 A jump pressed shortly before landing is buffered. Holding Jump from an earlier
 jump does not automatically roll out; release and press again.
-With no further press, the slide recovers by itself. Under a low ceiling you
+With no further press, the slide recovers by itself. Hold Sprint to keep sliding.
+Under a low ceiling you
 stay low; use movement to crawl out before standing or rolling out.
+
+HIGHLANDS / MOMENTUM IN VERSION 0.6
+Esc / Start > Highlands / Momentum Routes > choose one of five regions.
+1440 x 1680 m: sixteen times the previous map's area. Rolling hills, broad open
+spaces, four mountains with peaks above 200 m, 180 additional blocks and 40 ramps.
+Long Run has an open lane for chains. Rolling Basin tests hills and wide turns.
+Ridge Descent starts high for downhill slides. Mountain Pass tests steep grades.
+Block Fields provides varied blocks and ramps. See LANDSCAPE.md for the regions.
+Travel resets free-run stats and sets your respawn point. Respawn in Pause returns
+there. Return to Playground and Restart Course outside Skyway return to the lab.
+
+Run with Sprint, long jump, dive in flight, then press Jump on the landing slide
+to roll out. Repeat to build speed. Each move adds less speed as you get faster,
+but there is no hard horizontal speed cap. Watch SPEED, PEAK and CHAIN onscreen.
+Downhill gravity adds speed; uphill spends it. Steep faces slide. Uphill jumps
+keep upward slope momentum. Hold Sprint to extend a downhill slide.
+Strong forward input preserves earned speed; no input in the air coasts.
+Use lighter stick or opposite input to brake. Fast turns need wider arcs.
+See MOVEMENT.md for the rules, primary design references and tuning notes.
 
 THE PLAYGROUND
 Ramp to beacon 1, jump blocks to beacon 2, long jump to beacon 3, alternating
@@ -105,7 +125,8 @@ sounds. Supported controllers can vibrate briefly on movement events.
 Sound/vibration availability depends on your output device and controller.
 If no audio device is available, the game continues silently.
 
-This prototype uses a variable-height capsule, blocks, ramps and moving platforms.
+This prototype uses a variable-height capsule, heightfield terrain, blocks,
+ramps and moving platforms.
 Arbitrary meshes, an editor and music are future work.
 The robot, level, shaders, font and movement effects are generated in code.
 

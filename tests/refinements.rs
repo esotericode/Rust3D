@@ -12,6 +12,7 @@ use stride::{
 
 fn floor() -> World {
     World {
+        terrain: None,
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(100., 1., 100.), NAVY)],
         ramps: vec![],
         beacons: vec![],

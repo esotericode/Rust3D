@@ -1,4 +1,5 @@
 use crate::course::{Course, MovingPlatform};
+use crate::engine::terrain::{Seeded, Terrain, MAP_MIN, MAP_SIZE, REGIONS, SEED};
 use glam::{vec3, Vec3};
 
 pub const NAVY: [f32; 3] = [0.18, 0.25, 0.31];
@@ -39,6 +40,14 @@ pub struct Ramp {
     pub max: Vec3,
 }
 impl Ramp {
+    pub fn normal(&self) -> Vec3 {
+        vec3(
+            0.,
+            1.,
+            (self.max.y - self.min.y) / (self.max.z - self.min.z),
+        )
+        .normalize()
+    }
     pub fn height(&self, x: f32, z: f32) -> Option<f32> {
         if x < self.min.x || x > self.max.x || z < self.min.z || z > self.max.z {
             return None;
@@ -55,6 +64,7 @@ pub struct Beacon {
 
 #[derive(Clone, Debug)]
 pub struct World {
+    pub terrain: Option<Terrain>,
     pub solids: Vec<Solid>,
     pub ramps: Vec<Ramp>,
     pub beacons: Vec<Beacon>,
@@ -134,6 +144,7 @@ impl Default for World {
             solids.push(Solid::new(vec3(x, 2.5, 28.), vec3(1., 5., 8.), NAVY));
         }
         let mut world = Self {
+            terrain: Some(Terrain::highlands()),
             solids,
             platforms: Vec::new(),
             course: Course::default(),
@@ -224,11 +235,98 @@ impl Default for World {
             }
         }
         Course::build(&mut world);
+        world.scatter_highlands();
         world
     }
 }
 
 impl World {
+    fn scatter_highlands(&mut self) {
+        let mut rng = Seeded(SEED);
+        let mut blocks = 0;
+        let mut ramps = 0;
+        for _ in 0..4000 {
+            let x = rng.range(MAP_MIN.x + 35., MAP_MIN.x + MAP_SIZE.x - 35.);
+            let z = rng.range(MAP_MIN.y + 35., MAP_MIN.y + MAP_SIZE.y - 35.);
+            if (x > -120. && x < 320. && z > -275. && z < 225.)
+                || ((x - 100.).abs() < 45. && z > 190.)
+                || REGIONS
+                    .iter()
+                    .any(|r| glam::Vec2::new(x - r.point.x, z - r.point.y).length() < 40.)
+            {
+                continue;
+            }
+            let t = self.terrain.as_ref().unwrap();
+            let (h, n) = t.sample(x, z).unwrap();
+            if n.y < 0.78 {
+                continue;
+            }
+            if blocks < 180 {
+                let sx = rng.range(1.5, 17.);
+                let sz = rng.range(1.5, 17.);
+                let height = rng.range(1., 18.);
+                let mut low = h;
+                let mut high = h;
+                for dx in [-0.5, 0., 0.5] {
+                    for dz in [-0.5, 0., 0.5] {
+                        let y = t.sample(x + sx * dx, z + sz * dz).unwrap().0;
+                        low = low.min(y);
+                        high = high.max(y);
+                    }
+                }
+                let bottom = low - 0.4;
+                let top = high + height;
+                let color = if blocks % 3 == 0 {
+                    [0.46, 0.49, 0.48]
+                } else {
+                    NAVY
+                };
+                self.solids.push(Solid::new(
+                    vec3(x, (top + bottom) * 0.5, z),
+                    vec3(sx, top - bottom, sz),
+                    color,
+                ));
+                blocks += 1;
+            } else if ramps < 40 {
+                let width = rng.range(6., 15.);
+                let length = rng.range(18., 38.);
+                let low = t.sample(x, z + length * 0.5).unwrap().0;
+                let high = t.sample(x, z - length * 0.5).unwrap().0.max(low) + rng.range(4., 10.);
+                self.ramps.push(Ramp {
+                    min: vec3(x - width * 0.5, low, z - length * 0.5),
+                    max: vec3(x + width * 0.5, high, z + length * 0.5),
+                });
+                ramps += 1;
+            } else {
+                break;
+            }
+        }
+        assert_eq!((blocks, ramps), (180, 40));
+    }
+    /// Highest support close enough to the feet, including sloped surfaces.
+    pub fn ground_surface(&self, p: Vec3) -> Option<(f32, Vec3)> {
+        let blocks = self
+            .collision_solids()
+            .filter(|s| {
+                p.x >= s.min.x
+                    && p.x <= s.max.x
+                    && p.z >= s.min.z
+                    && p.z <= s.max.z
+                    && s.max.y <= p.y + 0.28
+            })
+            .map(|s| (s.max.y, Vec3::Y));
+        let slopes = self
+            .continuous_surface(p.x, p.z)
+            .filter(|s| s.0 <= p.y + 0.28);
+        blocks.chain(slopes).max_by(|a, b| a.0.total_cmp(&b.0))
+    }
+    pub fn continuous_surface(&self, x: f32, z: f32) -> Option<(f32, Vec3)> {
+        self.ramps
+            .iter()
+            .filter_map(|r| r.height(x, z).map(|h| (h, r.normal())))
+            .chain(self.terrain.as_ref().and_then(|t| t.sample(x, z)))
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+    }
     pub fn collision_solids(&self) -> impl Iterator<Item = &Solid> {
         self.solids
             .iter()
@@ -262,6 +360,12 @@ impl World {
             .iter()
             .filter_map(|r| r.height(p.x, p.z))
             .filter(|h| *h <= p.y + 0.15);
-        blocks.chain(ramps).max_by(f32::total_cmp)
+        let terrain = self
+            .terrain
+            .as_ref()
+            .and_then(|t| t.sample(p.x, p.z))
+            .map(|s| s.0)
+            .filter(|h| *h <= p.y + 0.15);
+        blocks.chain(ramps).chain(terrain).max_by(f32::total_cmp)
     }
 }

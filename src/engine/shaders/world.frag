@@ -46,7 +46,8 @@ void main() {
     vec3 b=cross(n,t);
     bool marking=style>1.5 && style<2.5;
     bool paint=style>2.5 && style<3.5;
-    bool rubber=style>3.5;
+    bool rubber=style>3.5 && style<4.5;
+    bool terrain=style>4.5;
     vec4 tex=texture2D(detail,uv*1.4);
     float relief=paint?0.14:0.42;
     relief*=1.0-smoothstep(12.0,45.0,distance_to_eye);
@@ -54,7 +55,7 @@ void main() {
         n=normalize(n+t*(tex.g*2.0-1.0)*relief+b*(tex.b*2.0-1.0)*relief);
         base*=1.0+(tex.r-0.5)*(paint?0.20:0.65);
     }
-    float roughness=paint?0.36:(rubber?0.92:0.78);
+    float roughness=paint?0.36:((rubber || terrain)?0.92:0.78);
     roughness=clamp(roughness+(tex.a-0.5)*0.2,0.22,0.96);
     if(style>0.5 && style<1.5) {
         // Wide, filtered paver joints remain readable without a distant grid shimmer.
@@ -76,6 +77,6 @@ void main() {
     vec3 lit=base*ambient+(base*(1.0-f)/PI+spec)*vec3(3.0,2.78,2.45)*nl*shadow;
     if(marking) lit=base*1.15;
     vec3 display=pow(tone(lit),vec3(1.0/2.2));
-    float fog=clamp(1.0-exp(-distance_to_eye*0.0028),0.0,0.82);
+    float fog=clamp(1.0-exp(-distance_to_eye*0.00085),0.0,0.82);
     gl_FragColor=vec4(mix(display,vec3(0.72,0.80,0.84),fog),1.0);
 }

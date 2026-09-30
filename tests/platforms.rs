@@ -13,6 +13,7 @@ fn rig(travel: Vec3) -> (World, Player) {
     let mut p = Player::default();
     p.respawn(vec3(0., 5.08, 0.));
     let mut w = World {
+        terrain: None,
         solids: vec![],
         ramps: vec![],
         beacons: vec![],

@@ -9,6 +9,7 @@ use stride::{
 
 fn floor() -> World {
     World {
+        terrain: None,
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(100., 1., 100.), NAVY)],
         ramps: vec![],
         beacons: vec![],
@@ -239,6 +240,7 @@ fn jump_buffer_triggers_after_landing() {
 #[test]
 fn walking_off_edge_keeps_a_short_coyote_jump() {
     let w = World {
+        terrain: None,
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(2., 1., 2.), NAVY)],
         ramps: vec![],
         beacons: vec![],
