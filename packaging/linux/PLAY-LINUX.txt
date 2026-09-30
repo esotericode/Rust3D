@@ -1,0 +1,69 @@
+STRIDE / RUST3D — LINUX x86_64
+Version @VERSION@
+
+GET GOING
+Extract Stride-Linux-x86_64.tar.gz and open Stride-Linux.
+Run the executable Stride, or run ./Play.sh from that folder in a terminal.
+The archive preserves executable permissions. No Rust setup or asset downloads.
+
+Built on Ubuntu 22.04 for Linux x86_64 with glibc 2.35 or newer.
+Requires an X11 session (or XWayland), an OpenGL-capable graphics driver, and
+the standard libudev/libasound runtime libraries. These are normally present
+on Ubuntu/Mint desktops. If needed, Ubuntu 22.04 uses:
+  sudo apt install libudev1 libasound2 libx11-6 libxcursor1 libxi6 libgl1
+On Ubuntu 24.04 the audio package is libasound2t64 instead of libasound2.
+Use your distribution's GPU driver; the package does not include a GPU driver.
+This build is for Intel/AMD 64-bit PCs, not ARM or Alpine/musl.
+
+CONTROLS
+WASD / arrows / left stick      Camera-relative movement
+Shift / RT / R2                 Sprint
+Space / A / Cross               Tap hop / hold high jump / wall kick
+Sprint + Jump                   Long jump
+F / X / Square                  Dive
+Jump or Dive on landing slide   Rollout
+Q-E / right stick / RMB drag    Camera orbit
+Mouse wheel                     Zoom
+C / Y / Triangle                Recenter
+Esc / Start                     Pause menu
+F1 / Select                     Controls and movement tips
+F2                              Display, camera, controller and sound options
+F11                             Fullscreen
+Enter / A                       Menu confirm
+
+Reset and respawn actions live in the pause menu; Restart requires confirmation.
+Both sticks have a rescaled 10% default radial deadzone; remapping and separate
+deadzone adjustments are available in Controller Settings. Devices depend on
+Linux drivers, mappings and input-device permissions. Sound is optional; the
+game continues silently when no usable audio output exists.
+
+HIGHLANDS AND MOMENTUM
+Pause > Highlands / Momentum Routes > choose a region.
+1440 x 1680 m, sixteen times the old yard's area. Rolling hills, open spaces,
+four mountain masses with peaks above 200 m, 180 added blocks and 40 new ramps.
+Long Run supplies an open speed lane. Other starts test hills, descent, steep
+faces and scattered blocks. Travel sets your respawn point.
+
+Chain long jumps, dives and rollouts to build speed. Gains diminish with speed,
+with no hard horizontal cap. Downhill gravity adds speed; uphill spends it.
+Steep faces slide. Uphill launches retain upward slope momentum.
+Hold Sprint to extend a slide. Strong forward input preserves speed; air with
+no input coasts. Light stick or opposite input brakes. Fast turns need wide arcs.
+HUD: current speed, peak, chain, region, coordinates and support slope.
+
+The original beacon lab and Skyway remain. Pause > Skyway / Section Practice
+starts the eight-section course or practices any section. Amber moves, mint is
+fixed, violet saves checkpoints. Lifts and shuttles carry momentum into jumps.
+LANDSCAPE.md, MOVEMENT.md and COURSE.md describe regions, rules and techniques.
+
+OPTIONS
+Default: 1280x720, 60 FPS cap, windowed. F2 opens options; Apply and Save commits.
+Choose render resolution, FPS cap, fullscreen, camera/controller settings or
+sound volume. Physics stays at 120 Hz; rendering interpolates between updates.
+Preferences live in the XDG configuration directory under Rust3D/stride-options.cfg
+(normally ~/.config/Rust3D/stride-options.cfg).
+
+If startup fails, run ./Play.sh in a terminal to see the error, check your GPU
+driver/display session, and look for stride-error.log beside the executable.
+SOURCE.txt records the exact tagged game source and build environment.
+Source: https://github.com/esotericode/Rust3D

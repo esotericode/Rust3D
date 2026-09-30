@@ -22,6 +22,17 @@ No installation or Rust setup required. Needs 64-bit Windows 10/11 and an
 OpenGL-capable graphics driver. There are no external assets or bundled DLLs.
 CI builds with the static Microsoft C runtime.
 
+## Play on Linux
+
+Download **Stride-Linux-x86_64.tar.gz** from the same release and extract it.
+Open `Stride-Linux` and run `Stride`, or run `./Play.sh` from that folder in a
+terminal. No Rust setup or additional game assets are needed. The package
+targets Linux x86_64 desktops with glibc 2.35 or newer, X11/XWayland, an OpenGL
+driver, libudev and libasound. Included PLAY.txt has dependency commands and
+controls. CI builds the existing release tag on Ubuntu 22.04, runs the packaged
+game with actual Mesa rendering, and checks that same package on Ubuntu 24.04
+before attaching it to the release. The tag and Windows download are preserved.
+
 | Control | Action |
 | --- | --- |
 | WASD / arrows | Camera-relative movement |

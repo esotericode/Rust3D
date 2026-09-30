@@ -1,0 +1,86 @@
+name: Package Linux release
+on:
+  push:
+    branches: ['codex/linux-v0.6.0']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and attach a Linux package to
+        required: true
+        default: v0.6.0
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || 'v0.6.0' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          path: game
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libasound2-dev pkg-config xvfb libgl1-mesa-dri libxcursor1 libxi6
+      - name: Test the tagged game source
+        working-directory: game
+        run: cargo test --locked
+      - name: Build Linux x64 release
+        working-directory: game
+        run: cargo build --release --locked
+      - name: Package executable, launcher, guides and notices
+        run: python3 packaging/linux/package.py game dist "$RELEASE_TAG"
+      - name: Run the packaged game with real OpenGL
+        run: |
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 dist/Stride-Linux/Play.sh --smoke-test --screenshot linux-playground.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 dist/Stride-Linux/Play.sh --smoke-test --region-view 0 --screenshot linux-highlands.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 dist/Stride-Linux/Play.sh --smoke-test --course-view 4 --screenshot linux-skyway.ppm
+          mv dist/Stride-Linux/*.ppm .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stride-Linux-x86_64
+          path: |
+            dist/Stride-Linux-x86_64.tar.gz
+            dist/Stride-Linux-x86_64.sha256
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stride-linux-render-test
+          path: '*.ppm'
+  compatibility:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Stride-Linux-x86_64
+          path: dist
+      - run: sudo apt-get update && sudo apt-get install -y libudev1 libasound2t64 xvfb libgl1-mesa-dri libxcursor1 libxi6
+      - name: Check and launch the extracted package on Ubuntu 24.04
+        working-directory: dist
+        run: |
+          sha256sum --check Stride-Linux-x86_64.sha256
+          tar -xzf Stride-Linux-x86_64.tar.gz
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 Stride-Linux/Play.sh --smoke-test --region-view 1 --screenshot linux-compatibility.ppm
+  publish:
+    needs: [build, compatibility]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Stride-Linux-x86_64
+          path: dist
+      - name: Attach Linux build to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/Stride-Linux-x86_64.tar.gz dist/Stride-Linux-x86_64.sha256
