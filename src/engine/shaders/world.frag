@@ -1,7 +1,8 @@
 #version 100
 precision highp float;
 uniform sampler2D detail;
-uniform sampler2D shadow_map;
+// Packed depth needs full sampler precision; lowp/mediump causes depth bands.
+uniform highp sampler2D shadow_map;
 uniform mat4 light_matrix;
 uniform vec3 eye;
 uniform vec3 sun;
