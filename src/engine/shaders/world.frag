@@ -2,6 +2,7 @@
 precision highp float;
 uniform sampler2D detail;
 uniform sampler2D shadow_map;
+uniform mat4 light_matrix;
 uniform vec3 eye;
 uniform vec3 sun;
 varying vec3 position;
@@ -16,11 +17,19 @@ float visibility(vec3 n) {
     vec3 p=light_position.xyz/light_position.w*0.5+0.5;
     if(p.x<0.005 || p.x>0.995 || p.y<0.005 || p.y>0.995 || p.z<0.0 || p.z>1.0) return 1.0;
     float bias=max(0.00022,0.0008*(1.0-max(dot(n,sun),0.0)));
+    // Compare each tap against the receiver plane at that texel's centre.
+    // A constant depth comparison makes large, sloped surfaces shadow themselves.
+    vec3 rx=vec3(light_matrix[0][0],light_matrix[1][0],light_matrix[2][0]);
+    vec3 ry=vec3(light_matrix[0][1],light_matrix[1][1],light_matrix[2][1]);
+    vec3 rz=vec3(light_matrix[0][2],light_matrix[1][2],light_matrix[2][2]);
+    vec3 plane=vec3(dot(rx,n)/dot(rx,rx),dot(ry,n)/dot(ry,ry),dot(rz,n)/dot(rz,rz));
+    vec2 slope=abs(plane.z)>0.01?clamp(-plane.xy/plane.z,vec2(-4.0),vec2(4.0)):vec2(0.0);
     float value=0.0;
     for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++) {
-        vec3 encoded_depth=texture2D(shadow_map,p.xy+vec2(float(x),float(y))*1.35/2048.0).rgb;
+        vec2 tap=(floor((p.xy+vec2(float(x),float(y))*1.35/2048.0)*2048.0)+0.5)/2048.0;
+        vec3 encoded_depth=texture2D(shadow_map,tap).rgb;
         float depth=dot(encoded_depth,vec3(1.0,1.0/255.0,1.0/65025.0));
-        value+=step(p.z-bias,depth);
+        value+=step(p.z+dot(slope,tap-p.xy)-bias,depth);
     }
     // Fade to unshadowed lighting at the coverage boundary.
     float edge=min(min(p.x,1.0-p.x),min(p.y,1.0-p.y));

@@ -1,5 +1,5 @@
 STRIDE / RUST3D MOVEMENT LAB
-Version 0.3.0
+Version 0.5.0
 
 GET GOING
 Extract the ZIP, open Stride-Windows, and double-click Stride.exe.

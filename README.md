@@ -1,8 +1,9 @@
 # Stride / Rust3D
 
 A custom Rust 3D engine and third-person movement playground. Run, jump,
-long jump, dive, roll out, and climb by kicking between walls. Version 0.4 adds
-**Skyway**: eight progressively harder sections with 46 ordered components,
+long jump, dive, roll out, and climb by kicking between walls. Version 0.5 adds
+sun shadows, rounded geometry and textured materials. **Skyway** offers eight
+progressively harder sections with 46 ordered components,
 16 moving platforms, lifts, fixed rest decks and section practice. The yard is
 now **360 x 420 metres**, with eleven ramps, extra block gardens, the original
 14.3 metre tower and seven-beacon movement lab.
