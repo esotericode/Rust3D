@@ -250,6 +250,7 @@ fn settings_roundtrip_and_invalid_values_are_safe() {
         frame_cap: 7,
         fullscreen: true,
         deadzone_percent: 15,
+        ..Default::default()
     };
     assert_eq!(Settings::decode(&s.encode()), s);
     assert_eq!(s.size(), (2560, 1440));

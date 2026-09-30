@@ -1,9 +1,10 @@
 # Stride / Rust3D
 
 A custom Rust 3D engine and third-person movement playground. Run, jump,
-long jump, and climb by kicking between walls. Version 0.2 adds gamepad input,
-refined movement, a 112 x 112 metre playground, six ramps, a 14.3 metre spiral
-tower, seven timed beacons, and saved display/input options.
+long jump, and climb by kicking between walls. Version 0.3 adds dive and rollout,
+capsule collision, a smoother camera, interpolated rendering, procedural sound
+and dust, controller remapping, and safe menu-only resets. Explore a 112 x 112
+metre playground with six ramps, a 14.3 metre tower, and seven timed beacons.
 
 ## Play on Windows
 
@@ -22,8 +23,9 @@ CI builds with the static Microsoft C runtime.
 | Shift + Space while moving | Long jump |
 | Q / E or right mouse drag | Orbit camera |
 | Mouse wheel | Zoom |
-| R | Respawn at checkpoint |
-| Enter | Restart course / confirm menu selection |
+| F | Dive; press Jump or Dive during the landing slide to roll out |
+| C | Recenter camera |
+| Enter | Confirm menu selection |
 | F1 / F2 / F11 / Esc | Controls / options / fullscreen / pause |
 
 | Standard gamepad control | Action |
@@ -31,15 +33,27 @@ CI builds with the static Microsoft C runtime.
 | Left stick | Analog walk/run |
 | Right stick | Orbit camera |
 | A / Cross | Jump / wall kick / confirm |
-| RT or B / Circle | Sprint; add jump for a long jump |
-| X / Square | Respawn |
+| RT / R2 | Sprint; add jump for a long jump |
+| X / Square | Dive; Jump or Dive rolls out after landing |
 | Y / Triangle | Recenter camera |
 | Start / Menu | Pause / resume |
 | Select / View | Controls |
 | D-pad or left stick | Navigate menus |
 
+Respawn at checkpoint and Restart Course are **pause-menu actions**. Restart
+opens a confirmation dialog with Cancel selected. There are no gameplay reset
+buttons or keys; the old X, R, and Enter reset shortcuts are removed.
+
+Dive on the ground or once during an airborne jump. It preserves forward
+momentum, lands in a short slide, and can chain into a rollout hop. A jump
+pressed shortly before landing is buffered. Without another press, the slide
+recovers automatically. Under low ceilings, it stays low and permits slow
+movement until there is enough room to stand.
+
 Gamepads use gilrs mappings and support hotplugging. The default circular
-deadzone is **10% on both sticks**; Options lets you change it from 0% to 30%.
+deadzone is **10% on both sticks**; Controller Settings lets you change each
+stick independently from 0% to 30%, remap four gameplay actions, and toggle
+vibration. Duplicate bindings swap rather than triggering two actions.
 Input outside the deadzone is rescaled continuously, preserving slow walking.
 Use a controller supported by Windows Gaming Input; Xbox-compatible controllers
 are the primary target. Other devices depend on driver and mapping support.
@@ -57,7 +71,11 @@ Keyboard, mouse, and controller navigation are supported.
 
 - Render resolutions: 960 x 540, 1280 x 720, 1600 x 900, 1920 x 1080, 2560 x 1440.
 - Frame caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
-- Windowed/fullscreen mode and stick deadzone.
+- Windowed/fullscreen mode.
+- Camera: 25–200% sensitivity, invert vertical look, optional automatic alignment.
+- Controller: separate movement/camera deadzones, jump/dive/sprint/recenter
+  bindings, optional vibration. Menu A/B and Start retain their standard roles.
+- Sound: effects volume, including mute. All effects are synthesized in Rust.
 
 The default is **1280 x 720 at a 60 FPS cap**. Render resolution controls the
 actual offscreen game image. Windowed mode requests that window size; desktop
@@ -68,15 +86,16 @@ the GPU supports multisample resolve, with a single-sample fallback.
 The cap limits rendered frames with a clock-based limiter. GPU performance and
 driver overrides may produce a lower actual FPS, shown in the HUD and Options.
 Movement always uses a **fixed 120 Hz simulation** and catches up between
-rendered frames. Changing the cap does not change movement constants or game
+rendered frames. The character and camera blend between completed simulation
+states for smooth rendering when the frame and simulation rates differ. Changing the cap does not change movement constants or game
 speed at supported frame rates. Settings are saved under
 `%LOCALAPPDATA%/Rust3D/stride-options.cfg` on Windows, or the XDG configuration
 directory on Linux.
 
 ## Develop
 
-Install stable Rust. Linux also needs `libudev-dev` and `pkg-config` for gamepad
-support (for example, `sudo apt-get install libudev-dev pkg-config`), then:
+Install stable Rust. Linux also needs `libudev-dev`, `libasound2-dev`, and `pkg-config` for input/audio
+(for example, `sudo apt-get install libudev-dev libasound2-dev pkg-config`), then:
 
 ```sh
 cargo run
@@ -97,7 +116,9 @@ xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --scree
 ## Engine
 
 **miniquad** handles native window/input and low-level GPU access; **glam**
-provides vector/matrix math; **gilrs** handles gamepad devices and mappings.
+provides vector/matrix math; **gilrs** handles gamepad devices and mappings; **cpal** supplies native audio
+output. The Rust engine synthesizes and mixes its own movement sounds. If no
+audio output is available, play continues silently.
 There is no prebuilt game or physics engine.
 The repository owns the fixed 120 Hz simulation, character collision,
 procedural geometry, shaders, HUD font, camera, and game logic.
@@ -108,20 +129,22 @@ procedural geometry, shaders, HUD font, camera, and game logic.
 | `src/engine/renderer.rs` | GPU pipeline, buffers, lighting/grid/fog shaders and capture |
 | `src/engine/mesh.rs` | Procedural geometry |
 | `src/engine/camera.rs` | Third-person follow/orbit and obstruction checks |
-| `src/engine/controller.rs` | Gamepad hotplugging, mappings and radial deadzone |
+| `src/engine/controller.rs` | Gamepad hotplugging, remapping, radial deadzones and vibration |
 | `src/engine/frame.rs` | Render frame pacing |
+| `src/engine/audio.rs` | Procedural sound synthesis, mixer and output |
 | `src/engine/ui.rs` | Built-in font and HUD geometry |
 | `src/world.rs` | Solids, ramp surfaces, level and beacons |
 | `src/app.rs` | Game loop, input, course logic and animated robot |
 | `src/menu.rs` / `src/settings.rs` | Options, menu navigation and saved preferences |
 
-This first version uses an upright box character collider and axis-separated
-collision against static geometry. Arbitrary mesh collision, moving platforms,
-audio, vibration, custom controller rebinding, and an editor are future work.
-Tests cover deadzones, analog movement, hop/high-jump behavior, prompt/late wall
-kicks, the tower route, frame-rate independence, menu navigation, and settings.
-CI renders menus and the tower at multiple resolutions and builds/tests on
-Windows. Physical controller testing remains a separate hardware check.
+This prototype uses a variable-height upright capsule against static blocks
+and ramp surfaces. Arbitrary mesh collision, moving platforms, and an editor
+are future work. Tests cover dive/rollout transitions and buffering, low
+clearance, corner normals, camera obstruction and manual overrides, render
+interpolation, controller bindings, saved preferences, and the existing tower
+route and wall kicks. CI renders menus and the tower at multiple resolutions
+and builds/tests on Windows. Physical controller, vibration, and Windows audio
+playtesting remain hardware checks.
 All game geometry and UI glyphs are generated in code.
 
 ## License

@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod camera;
 pub mod controller;
 pub mod frame;

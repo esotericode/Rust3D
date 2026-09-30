@@ -1,4 +1,8 @@
-use gilrs::{Axis, Button, GamepadId, Gilrs, GilrsBuilder};
+use crate::settings::Settings;
+use gilrs::{
+    ff::{BaseEffect, BaseEffectType, Effect, EffectBuilder, Repeat, Ticks},
+    Axis, Button, GamepadId, Gilrs, GilrsBuilder,
+};
 use glam::Vec2;
 
 /// Circular deadzone with continuous rescaling; diagonal input never exceeds 1.
@@ -14,7 +18,6 @@ pub fn radial_deadzone(raw: Vec2, deadzone: f32) -> Vec2 {
         raw / length * ((length.min(1.) - deadzone) / (1. - deadzone))
     }
 }
-
 #[derive(Clone, Copy, Default)]
 pub struct PadState {
     pub movement: Vec2,
@@ -22,30 +25,49 @@ pub struct PadState {
     pub menu_axis: Vec2,
     pub jump_held: bool,
     pub jump: bool,
+    pub dive: bool,
     pub sprint: bool,
-    pub respawn: bool,
     pub recenter: bool,
     pub pause: bool,
     pub help: bool,
     pub back: bool,
+    pub confirm: bool,
 }
-
+/// Menus always use A/B; gameplay bindings never include a reset action.
+pub fn map_buttons(buttons: [bool; 10], previous: [bool; 10], settings: &Settings) -> PadState {
+    let edge = |i: usize| buttons[i] && !previous[i];
+    PadState {
+        jump_held: buttons[settings.bindings[0]],
+        jump: edge(settings.bindings[0]),
+        dive: edge(settings.bindings[1]),
+        sprint: buttons[settings.bindings[2]],
+        recenter: edge(settings.bindings[3]),
+        pause: edge(8),
+        help: edge(9),
+        confirm: edge(0),
+        back: edge(1),
+        ..Default::default()
+    }
+}
 pub struct Controller {
     gilrs: Option<Gilrs>,
     active: Option<GamepadId>,
-    previous: [bool; 7],
+    previous: [bool; 10],
+    effect: Option<Effect>,
     pub name: Option<String>,
     pub error: Option<String>,
     pub state: PadState,
 }
 impl Default for Controller {
     fn default() -> Self {
-        // Disable the device-derived deadzone so the user-selected radial value
-        // applies once to both sticks. Mappings and automatic state updates remain.
-        let result = GilrsBuilder::new()
-            .with_default_filters(false)
-            .with_force_feedback(false)
-            .build();
+        let make = |ff| {
+            GilrsBuilder::new()
+                .with_default_filters(false)
+                .with_force_feedback(ff)
+                .build()
+                .map_err(|e| e.to_string())
+        };
+        let result = make(true).or_else(|_| make(false));
         let (gilrs, error) = match result {
             Ok(g) => (Some(g), None),
             Err(e) => (None, Some(e.to_string())),
@@ -53,7 +75,8 @@ impl Default for Controller {
         Self {
             gilrs,
             active: None,
-            previous: [false; 7],
+            previous: [false; 10],
+            effect: None,
             name: None,
             error,
             state: PadState::default(),
@@ -61,13 +84,16 @@ impl Default for Controller {
     }
 }
 impl Controller {
-    pub fn poll(&mut self, deadzone: f32) {
+    pub fn poll(&mut self, settings: &Settings) {
         self.state = PadState::default();
         let Some(g) = self.gilrs.as_mut() else {
             return;
         };
         while let Some(event) = g.next_event() {
             if matches!(event.event, gilrs::EventType::ButtonPressed(..)) {
+                if self.active != Some(event.id) {
+                    self.previous = [false; 10];
+                }
                 self.active = Some(event.id);
             }
         }
@@ -77,22 +103,21 @@ impl Controller {
                 .gamepads()
                 .find(|(_, p)| p.is_connected())
                 .map(|(id, _)| id);
-            self.previous = [false; 7];
+            self.previous = [false; 10];
         }
         let Some(id) = self.active else {
             self.name = None;
-            self.previous = [false; 7];
             return;
         };
         let p = g.gamepad(id);
         self.name = Some(p.name().to_owned());
         let movement = radial_deadzone(
             Vec2::new(p.value(Axis::LeftStickX), p.value(Axis::LeftStickY)),
-            deadzone,
+            settings.deadzone(),
         );
         let camera = radial_deadzone(
             Vec2::new(p.value(Axis::RightStickX), p.value(Axis::RightStickY)),
-            deadzone,
+            settings.look_deadzone(),
         );
         let dpad = Vec2::new(
             p.value(Axis::DPadX)
@@ -104,32 +129,58 @@ impl Controller {
         )
         .clamp_length_max(1.);
         let buttons = [
-            p.is_pressed(Button::South),
-            p.is_pressed(Button::West),
-            p.is_pressed(Button::North),
-            p.is_pressed(Button::Start),
-            p.is_pressed(Button::Select),
-            p.is_pressed(Button::East),
-            p.is_pressed(Button::RightTrigger2),
-        ];
-        let pressed = std::array::from_fn::<_, 7, _>(|i| buttons[i] && !self.previous[i]);
+            Button::South,
+            Button::East,
+            Button::West,
+            Button::North,
+            Button::LeftTrigger,
+            Button::RightTrigger,
+            Button::LeftTrigger2,
+            Button::RightTrigger2,
+            Button::Start,
+            Button::Select,
+        ]
+        .map(|b| p.is_pressed(b));
+        self.state = map_buttons(buttons, self.previous, settings);
         self.previous = buttons;
-        self.state = PadState {
-            movement,
-            camera,
-            menu_axis: if dpad.length_squared() > 0. {
-                dpad
-            } else {
-                movement
-            },
-            jump_held: buttons[0],
-            jump: pressed[0],
-            sprint: buttons[5] || buttons[6] || p.is_pressed(Button::RightTrigger),
-            respawn: pressed[1],
-            recenter: pressed[2],
-            pause: pressed[3],
-            help: pressed[4],
-            back: pressed[5],
+        self.state.movement = movement;
+        self.state.camera = camera;
+        self.state.menu_axis = if dpad.length_squared() > 0. {
+            dpad
+        } else {
+            movement
         };
+    }
+    pub fn rumble(&mut self, enabled: bool, strong: u16, weak: u16) {
+        if !enabled {
+            return;
+        }
+        let (Some(g), Some(id)) = (self.gilrs.as_mut(), self.active) else {
+            return;
+        };
+        if !g.gamepad(id).is_connected() || !g.gamepad(id).is_ff_supported() {
+            return;
+        }
+        self.effect = EffectBuilder::new()
+            .add_effect(BaseEffect {
+                kind: BaseEffectType::Strong { magnitude: strong },
+                ..Default::default()
+            })
+            .add_effect(BaseEffect {
+                kind: BaseEffectType::Weak { magnitude: weak },
+                ..Default::default()
+            })
+            .repeat(Repeat::For(Ticks::from_ms(80)))
+            .gamepads(&[id])
+            .finish(g)
+            .ok();
+        if let Some(effect) = &self.effect {
+            let _ = effect.play();
+        }
+    }
+    pub fn stop_rumble(&mut self) {
+        if let Some(effect) = self.effect.take() {
+            let _ = effect.stop();
+        }
     }
 }

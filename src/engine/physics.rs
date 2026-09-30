@@ -1,4 +1,7 @@
-use crate::world::{World, SPAWN};
+use crate::{
+    engine::camera::angle_delta,
+    world::{World, SPAWN},
+};
 use glam::{vec3, Vec2, Vec3};
 
 pub const RADIUS: f32 = 0.32;
@@ -8,17 +11,27 @@ pub const WALK_SPEED: f32 = 7.2;
 pub const SPRINT_SPEED: f32 = 10.5;
 pub const WALL_GRACE: f32 = 0.035;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Move {
+    #[default]
+    Normal,
+    Dive,
+    Slide,
+    Rollout,
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct Input {
     pub movement: Vec2,
     pub sprint: bool,
     pub jump: bool,
     pub jump_held: bool,
+    pub dive: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Player {
-    /// Centre of the feet; collision is an upright box.
+    /// Centre of the feet; collision uses an upright capsule.
     pub pos: Vec3,
     pub velocity: Vec3,
     pub grounded: bool,
@@ -29,6 +42,13 @@ pub struct Player {
     pub wall_kicks: u32,
     pub long_jumps: u32,
     pub animation_phase: f32,
+    pub motion: Move,
+    pub motion_time: f32,
+    pub dives: u32,
+    pub rollouts: u32,
+    pub landings: u32,
+    pub impact_speed: f32,
+    dive_used: bool,
     coyote: f32,
     jump_buffer: f32,
     wall_grace: f32,
@@ -53,6 +73,13 @@ impl Default for Player {
             wall_kicks: 0,
             long_jumps: 0,
             animation_phase: 0.,
+            motion: Move::Normal,
+            motion_time: 0.,
+            dives: 0,
+            rollouts: 0,
+            landings: 0,
+            impact_speed: 0.,
+            dive_used: false,
             coyote: 0.1,
             jump_buffer: 0.,
             wall_grace: 0.,
@@ -68,18 +95,62 @@ impl Default for Player {
 
 impl Player {
     pub fn respawn(&mut self, pos: Vec3) {
-        let counts = (self.jumps, self.wall_kicks, self.long_jumps);
+        let counts = (
+            self.jumps,
+            self.wall_kicks,
+            self.long_jumps,
+            self.dives,
+            self.rollouts,
+            self.landings,
+        );
         *self = Self::default();
         self.pos = pos;
         self.grounded = false;
         self.coyote = 0.;
-        (self.jumps, self.wall_kicks, self.long_jumps) = counts;
+        (
+            self.jumps,
+            self.wall_kicks,
+            self.long_jumps,
+            self.dives,
+            self.rollouts,
+            self.landings,
+        ) = counts;
     }
 
     pub fn speed(&self) -> f32 {
         Vec2::new(self.velocity.x, self.velocity.z).length()
     }
 
+    pub fn height(&self) -> f32 {
+        if matches!(self.motion, Move::Dive | Move::Slide) {
+            0.72
+        } else {
+            HEIGHT
+        }
+    }
+    pub fn interpolated(&self, previous: &Self, alpha: f32) -> Self {
+        let alpha = alpha.clamp(0., 1.);
+        let mut p = self.clone();
+        p.pos = previous.pos.lerp(self.pos, alpha);
+        p.facing = previous.facing + angle_delta(previous.facing, self.facing) * alpha;
+        p.animation_phase =
+            previous.animation_phase + (self.animation_phase - previous.animation_phase) * alpha;
+        if previous.motion == self.motion {
+            p.motion_time =
+                previous.motion_time + (self.motion_time - previous.motion_time) * alpha;
+        }
+        p
+    }
+    fn can_stand(&self, world: &World) -> bool {
+        !world
+            .solids
+            .iter()
+            .any(|s| capsule_overlaps(self.pos, HEIGHT, s.min, s.max))
+            && !world.ramps.iter().any(|r| {
+                r.height(self.pos.x, self.pos.z)
+                    .is_some_and(|h| self.pos.y < h - 0.01)
+            })
+    }
     pub fn step(&mut self, input: Input, yaw: f32, world: &World, dt: f32) {
         self.coyote = if self.grounded {
             0.10
@@ -94,18 +165,80 @@ impl Player {
         self.wall_grace = (self.wall_grace - dt).max(0.);
         self.kick_lock = (self.kick_lock - dt).max(0.);
         self.touched_wall = false;
+        self.motion_time += dt;
         let forward = vec3(-yaw.sin(), 0., -yaw.cos());
         let right = vec3(yaw.cos(), 0., -yaw.sin());
         let strength = input.movement.length().min(1.);
         let wish = (right * input.movement.x + forward * input.movement.y).normalize_or_zero();
-        if wish.length_squared() > 0. {
+        if wish.length_squared() > 0. && self.motion == Move::Normal {
             let target = (-wish.x).atan2(-wish.z);
             let difference = (target - self.facing + std::f32::consts::PI)
                 .rem_euclid(std::f32::consts::TAU)
                 - std::f32::consts::PI;
             self.facing += difference.clamp(-18. * dt, 18. * dt);
         }
-        let max_speed = if self.long_air {
+        // A dive can happen once per flight. Its landing becomes a short slide;
+        // a fresh jump or dive press rolls out, including a buffered landing press.
+        if self.motion == Move::Slide && !self.grounded {
+            self.motion = Move::Dive;
+            self.motion_time = 0.;
+        }
+        if self.motion == Move::Slide {
+            if (self.jump_buffer > 0. || input.dive) && self.can_stand(world) {
+                self.motion = Move::Rollout;
+                self.motion_time = 0.;
+                self.velocity.y = 7.6;
+                let direction = Vec3::new(self.velocity.x, 0., self.velocity.z).normalize_or_zero();
+                let direction = if direction == Vec3::ZERO {
+                    vec3(-self.facing.sin(), 0., -self.facing.cos())
+                } else {
+                    direction
+                };
+                let speed = self.speed().clamp(8., 15.);
+                self.velocity.x = direction.x * speed;
+                self.velocity.z = direction.z * speed;
+                self.grounded = false;
+                self.coyote = 0.;
+                self.jump_buffer = 0.;
+                self.rollouts += 1;
+            } else if (self.motion_time > 0.55 || self.speed() < 2.) && self.can_stand(world) {
+                self.motion = Move::Normal;
+                self.dive_used = false;
+            }
+        } else if input.dive && self.motion == Move::Normal && !self.dive_used {
+            let direction = if wish != Vec3::ZERO {
+                wish
+            } else {
+                Vec3::new(self.velocity.x, 0., self.velocity.z).normalize_or_zero()
+            };
+            let direction = if direction == Vec3::ZERO {
+                vec3(-self.facing.sin(), 0., -self.facing.cos())
+            } else {
+                direction
+            };
+            let speed = (self.speed() + 3.).clamp(13., 18.);
+            self.velocity.x = direction.x * speed;
+            self.velocity.z = direction.z * speed;
+            self.velocity.y = if self.grounded {
+                5.2
+            } else {
+                (self.velocity.y + 2.).clamp(-10., 4.)
+            };
+            self.facing += angle_delta(self.facing, (-direction.x).atan2(-direction.z));
+            self.motion = Move::Dive;
+            self.motion_time = 0.;
+            self.dive_used = true;
+            self.dives += 1;
+            self.grounded = false;
+            self.long_air = false;
+            self.jump_cuttable = false;
+            self.coyote = 0.;
+            self.jump_buffer = 0.;
+        }
+        let special = self.motion != Move::Normal;
+        let max_speed = if special {
+            self.speed().max(8.)
+        } else if self.long_air {
             15.0
         } else if input.sprint {
             SPRINT_SPEED
@@ -113,7 +246,9 @@ impl Player {
             WALK_SPEED
         };
         let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
-        let accel = if self.grounded {
+        let accel = if special {
+            7.
+        } else if self.grounded {
             if strength < 0.001 {
                 90.
             } else if horizontal.dot(wish) < -0.1 {
@@ -126,8 +261,13 @@ impl Player {
         } else {
             24.
         };
-        if self.kick_lock <= 0. {
-            let target = wish * max_speed * strength;
+        if self.kick_lock <= 0. && self.motion != Move::Slide {
+            let target = if special {
+                let direction = vec3(self.velocity.x, 0., self.velocity.z).normalize_or_zero();
+                (direction + wish * dt * 2.).normalize_or_zero() * max_speed
+            } else {
+                wish * max_speed * strength
+            };
             let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
             let delta = if wish == Vec3::ZERO && !self.grounded {
                 Vec3::ZERO
@@ -138,7 +278,22 @@ impl Player {
             self.velocity.x += change.x;
             self.velocity.z += change.z;
         }
-        if self.jump_buffer > 0. && self.coyote > 0. {
+        if special && self.speed() > 1. {
+            let direction = vec3(self.velocity.x, 0., self.velocity.z);
+            let target = (-direction.x).atan2(-direction.z);
+            self.facing += angle_delta(self.facing, target).clamp(-8. * dt, 8. * dt);
+        }
+        if self.motion == Move::Slide {
+            let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+            let slowed = if !self.can_stand(world) && strength > 0. {
+                horizontal + (wish * 3. * strength - horizontal).clamp_length_max(20. * dt)
+            } else {
+                horizontal - horizontal.clamp_length_max(12. * dt)
+            };
+            self.velocity.x = slowed.x;
+            self.velocity.z = slowed.z;
+        }
+        if self.motion == Move::Normal && self.jump_buffer > 0. && self.coyote > 0. {
             self.velocity.y = if input.sprint && self.speed() > 3. {
                 9.0
             } else {
@@ -163,7 +318,8 @@ impl Player {
             self.grounded = false;
             self.coyote = 0.;
             self.jump_buffer = 0.;
-        } else if self.jump_buffer > 0.
+        } else if self.motion == Move::Normal
+            && self.jump_buffer > 0.
             && !self.grounded
             && self.wall_grace > 0.
             && self.wall_contact_age <= 0.12
@@ -184,8 +340,7 @@ impl Player {
         }
         let old_y = self.pos.y;
         let was_grounded = self.grounded;
-        self.move_axis(world, 0, dt);
-        self.move_axis(world, 2, dt);
+        self.move_horizontal(world, dt);
         // Climb the continuous ramp surface, but never snap an airborne player up.
         if was_grounded && self.velocity.y <= 0. {
             for r in &world.ramps {
@@ -209,17 +364,18 @@ impl Player {
         self.pos.y += self.velocity.y * dt;
         self.grounded = false;
         for s in &world.solids {
-            if !overlaps(self.pos, s.min, s.max) {
+            let gap = horizontal_gap(self.pos, s.min, s.max).length_squared();
+            if gap >= RADIUS * RADIUS {
                 continue;
             }
-            if self.velocity.y <= 0. && before_y >= s.max.y - 0.02 && self.pos.y <= s.max.y {
-                self.pos.y = s.max.y;
+            let round = (RADIUS * RADIUS - gap).sqrt();
+            let top = s.max.y - RADIUS + round;
+            let ceiling = s.min.y - self.height() + RADIUS - round;
+            if self.velocity.y <= 0. && before_y >= top - 0.02 && self.pos.y <= top {
+                self.pos.y = top;
                 self.land();
-            } else if self.velocity.y > 0.
-                && before_y + HEIGHT <= s.min.y + 0.01
-                && self.pos.y + HEIGHT >= s.min.y
-            {
-                self.pos.y = s.min.y - HEIGHT;
+            } else if self.velocity.y > 0. && before_y <= ceiling + 0.01 && self.pos.y >= ceiling {
+                self.pos.y = ceiling;
                 self.velocity.y = 0.;
             }
         }
@@ -244,7 +400,20 @@ impl Player {
             self.velocity.y = -5.5;
             self.action = "WALL SLIDE";
         }
-        if self.grounded {
+        if self.grounded && self.motion == Move::Normal {
+            self.dive_used = false;
+        }
+        if self.motion == Move::Rollout && self.motion_time >= 0.45 {
+            self.motion = Move::Normal;
+        }
+        if self.motion != Move::Normal {
+            self.action = match self.motion {
+                Move::Dive => "DIVE",
+                Move::Slide => "DIVE SLIDE",
+                Move::Rollout => "ROLLOUT",
+                Move::Normal => unreachable!(),
+            };
+        } else if self.grounded {
             self.action = if self.speed() > 0.5 {
                 if input.sprint {
                     "SPRINT"
@@ -261,6 +430,14 @@ impl Player {
     }
 
     fn land(&mut self) {
+        if self.velocity.y < -1. {
+            self.landings += 1;
+            self.impact_speed = -self.velocity.y;
+        }
+        if self.motion == Move::Dive {
+            self.motion = Move::Slide;
+            self.motion_time = 0.;
+        }
         self.grounded = true;
         self.velocity.y = 0.;
         self.long_air = false;
@@ -270,74 +447,94 @@ impl Player {
         self.wall_contact_age = 0.;
     }
 
-    fn contact(&mut self, axis: usize, direction: f32) {
-        let mut normal = Vec3::ZERO;
-        normal[axis] = -direction;
+    fn contact(&mut self, normal: Vec3) {
         self.wall_normal = normal;
         self.wall_grace = WALL_GRACE;
         self.touched_wall = true;
-        self.velocity[axis] = 0.;
+        let into = self.velocity.dot(normal);
+        if into < 0. {
+            self.velocity -= normal * into;
+        }
     }
-
-    fn move_axis(&mut self, world: &World, axis: usize, dt: f32) {
-        let delta = self.velocity[axis] * dt;
-        if delta.abs() < 0.000001 {
-            return;
-        }
-        self.pos[axis] += delta;
-        for s in &world.solids {
-            if self.pos.y >= s.max.y - 0.01
-                || self.pos.y + HEIGHT <= s.min.y + 0.01
-                || !overlaps(self.pos, s.min, s.max)
-            {
-                continue;
-            }
-            // Small surface rises bridge a wedge to its landing without catching
-            // the front of the character box on the last few centimetres.
-            if self.grounded && s.max.y - self.pos.y <= 0.25 {
-                let raised = vec3(self.pos.x, s.max.y, self.pos.z);
-                let clear = !world.solids.iter().any(|other| {
-                    overlaps(raised, other.min, other.max)
-                        && raised.y < other.max.y - 0.01
-                        && raised.y + HEIGHT > other.min.y + 0.01
-                });
-                if clear {
-                    self.pos.y = s.max.y;
-                    continue;
+    fn move_horizontal(&mut self, world: &World, dt: f32) {
+        let delta = vec3(self.velocity.x, 0., self.velocity.z) * dt;
+        let steps = (delta.length() / (RADIUS * 0.5)).ceil().max(1.) as usize;
+        for _ in 0..steps {
+            self.pos += vec3(self.velocity.x, 0., self.velocity.z) * (dt / steps as f32);
+            for _ in 0..3 {
+                for s in &world.solids {
+                    if self.pos.y >= s.max.y - 0.001
+                        || self.pos.y + self.height() <= s.min.y + 0.001
+                    {
+                        continue;
+                    }
+                    if !capsule_overlaps(self.pos, self.height(), s.min, s.max) {
+                        continue;
+                    }
+                    if self.grounded && s.max.y - self.pos.y <= 0.25 {
+                        let raised = vec3(self.pos.x, s.max.y, self.pos.z);
+                        if !world.solids.iter().any(|other| {
+                            capsule_overlaps(raised, self.height(), other.min, other.max)
+                        }) {
+                            self.pos.y = s.max.y;
+                            continue;
+                        }
+                    }
+                    let vertical_gap = (s.min.y - (self.pos.y + self.height() - RADIUS))
+                        .max(self.pos.y + RADIUS - s.max.y)
+                        .max(0.);
+                    let radius = (RADIUS * RADIUS - vertical_gap * vertical_gap)
+                        .max(0.)
+                        .sqrt();
+                    self.push_circle(s.min, s.max, radius);
                 }
-            }
-            self.pos[axis] = if delta > 0. {
-                s.min[axis] - RADIUS
-            } else {
-                s.max[axis] + RADIUS
-            };
-            self.contact(axis, delta.signum());
-        }
-        for r in &world.ramps {
-            let sample = vec3(
-                self.pos.x.clamp(r.min.x, r.max.x),
-                0.,
-                self.pos.z.clamp(r.min.z, r.max.z),
-            );
-            if overlaps(self.pos, r.min, r.max) && self.pos.y + HEIGHT > r.min.y {
-                if let Some(h) = r.height(sample.x, sample.z) {
-                    if self.pos.y + 0.25 < h {
-                        self.pos[axis] = if delta > 0. {
-                            r.min[axis] - RADIUS
-                        } else {
-                            r.max[axis] + RADIUS
-                        };
-                        self.contact(axis, delta.signum());
+                for r in &world.ramps {
+                    let x = self.pos.x.clamp(r.min.x, r.max.x);
+                    let z = self.pos.z.clamp(r.min.z, r.max.z);
+                    if horizontal_gap(self.pos, r.min, r.max).length_squared() < RADIUS * RADIUS
+                        && self.pos.y + self.height() > r.min.y
+                        && r.height(x, z).is_some_and(|h| self.pos.y + 0.25 < h)
+                    {
+                        self.push_circle(r.min, r.max, RADIUS);
                     }
                 }
             }
         }
     }
+    fn push_circle(&mut self, min: Vec3, max: Vec3, radius: f32) {
+        let gap = horizontal_gap(self.pos, min, max);
+        let distance = gap.length();
+        if distance >= radius - 0.00001 {
+            return;
+        }
+        let (normal, penetration) = if distance > 0.00001 {
+            (
+                vec3(gap.x / distance, 0., gap.y / distance),
+                radius - distance,
+            )
+        } else {
+            let candidates = [
+                (self.pos.x - min.x, Vec3::NEG_X),
+                (max.x - self.pos.x, Vec3::X),
+                (self.pos.z - min.z, Vec3::NEG_Z),
+                (max.z - self.pos.z, Vec3::Z),
+            ];
+            let (gap, normal) = candidates
+                .into_iter()
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .unwrap();
+            (normal, gap + radius)
+        };
+        self.pos += normal * (penetration + 0.00001);
+        self.contact(normal);
+    }
 }
-
-fn overlaps(p: Vec3, min: Vec3, max: Vec3) -> bool {
-    p.x + RADIUS > min.x + 0.001
-        && p.x - RADIUS < max.x - 0.001
-        && p.z + RADIUS > min.z + 0.001
-        && p.z - RADIUS < max.z - 0.001
+fn horizontal_gap(p: Vec3, min: Vec3, max: Vec3) -> Vec2 {
+    Vec2::new(p.x - p.x.clamp(min.x, max.x), p.z - p.z.clamp(min.z, max.z))
+}
+fn capsule_overlaps(p: Vec3, height: f32, min: Vec3, max: Vec3) -> bool {
+    let y = (min.y - (p.y + height - RADIUS))
+        .max(p.y + RADIUS - max.y)
+        .max(0.);
+    horizontal_gap(p, min, max).length_squared() + y * y < RADIUS * RADIUS - 0.000001
 }

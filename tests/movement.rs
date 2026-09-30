@@ -31,6 +31,7 @@ fn movement(x: f32, y: f32, sprint: bool) -> Input {
         sprint,
         jump: false,
         jump_held: false,
+        dive: false,
     }
 }
 

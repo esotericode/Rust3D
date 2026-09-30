@@ -1,77 +1,95 @@
 STRIDE / RUST3D MOVEMENT LAB
-Version 0.2.0
+Version 0.3.0
 
 GET GOING
 Extract the ZIP, open Stride-Windows, and double-click Stride.exe.
 No installer, Rust toolchain, extra downloads, or assets required.
 Windows 10/11, 64-bit, with an OpenGL-capable graphics driver.
 
-CONTROLS
+KEYBOARD / MOUSE
 WASD or arrow keys     Move relative to the camera
 Left or right Shift   Sprint
-Space                 Tap for a hop / hold for a high jump
+Space                 Tap hop / hold high jump / wall kick / rollout
 Shift + Space         Long jump while moving at speed
-Space against a wall  Wall kick (release and press again each time)
+F                     Dive; press again during the slide to roll out
+C                     Recenter camera
 Q / E                 Orbit camera
 Hold right mouse      Drag to look around
 Mouse wheel           Zoom
-R                     Respawn at the last beacon
-Enter                 Restart course / confirm menu selection
+Enter                 Confirm a menu selection
 F1                    Controls and movement tips
-F2                    Options (resolution, frame cap, deadzone)
+F2                    Options (display, camera, controller, sound)
 F11                   Fullscreen
 Escape                Pause / back; choose Exit Game to quit
 
-STANDARD CONTROLLER
-Left stick            Analog walk/run, with a 10 percent radial deadzone
-Right stick           Orbit camera, with the same deadzone
-A / Cross             Jump, wall kick, or confirm menu selection
-RT or B / Circle      Sprint; add A / Cross for a long jump
-X / Square            Respawn
+DEFAULT CONTROLLER (gameplay bindings can be changed)
+Left stick            Analog walk/run; default 10 percent radial deadzone
+Right stick           Orbit camera; default 10 percent radial deadzone
+A / Cross             Jump / wall kick / rollout
+X / Square            Dive; press again during the slide to roll out
+RT / R2               Sprint; add Jump for a long jump
 Y / Triangle          Recenter camera
-Start / Menu          Pause / resume; choose Options in the pause menu
+Start / Menu          Pause / resume
 Select / View         Controls
 D-pad or left stick   Navigate menus; left/right changes options
-Controllers can be connected after startup. Xbox-compatible controllers are
-the primary target; other devices need compatible Windows drivers/mappings.
+A / Cross, B / Circle  Menu confirm, back (fixed regardless of gameplay bindings)
+Controllers may connect after startup. Xbox-compatible controllers are the
+primary target; other devices need compatible Windows drivers/mappings.
+
+SAFE RESETS
+Respawn at Checkpoint and Restart Course are pause-menu options.
+Restart Course asks for confirmation, with Cancel selected by default.
+No gameplay button resets the course. The former X/Square, R, and Enter reset
+shortcuts are removed. Falling still returns you to your latest checkpoint.
+
+DIVE AND ROLLOUT
+Dive from the ground for a quick forward leap, or during a jump to reach farther.
+You can dive once per flight. Landing transitions into a short belly slide.
+Press Jump or Dive during that slide for a rollout hop with forward momentum.
+A jump pressed shortly before landing is buffered. Holding Jump from an earlier
+jump does not automatically roll out; release and press again.
+With no further press, the slide recovers by itself. Under a low ceiling you
+stay low; use movement to crawl out before standing or rolling out.
 
 THE PLAYGROUND
-Run up the orange ramp to beacon 1. Jump the blocks to beacon 2.
-Use the second ramp to reach the launch platform, then run and long jump
-across the gap to beacon 3. Alternate wall kicks between the two tall
-walls to reach beacon 4. Pass through the tunnel for beacon 5.
-Then explore the much larger courtyard, climb the thirteen spiral ledges of
-the tower in the northwest for beacon 6, and reach the broad ridge for beacon 7.
-There are six ramps, extra jump blocks, wall pairs, and open running areas.
-The course timer starts when you move. Beacons save your respawn position.
-Falling returns you to your latest checkpoint. You can also explore freely.
-Best times are kept for the current session.
+Ramp to beacon 1, jump blocks to beacon 2, long jump to beacon 3, alternating
+wall kicks to beacon 4, tunnel to beacon 5, thirteen spiral tower ledges to
+beacon 6, and the broad ridge to beacon 7. Explore freely between timed runs.
+The 112 x 112 m courtyard has six ramps, extra blocks, wall pairs and open space.
+Beacons activate in order and save your respawn position. The run timer starts
+when you move. Best times last for the current session.
+Tap/hold jump changes height. Wall kicks require a fresh press in the first
+120 ms of contact, with 35 ms departure grace. Alternate walls to climb.
 
-REFINED MOVEMENT
-Light stick input walks; full input runs. Stopping and reversing are quicker.
-Tap jump for a low hop, or hold for a full jump. Air steering is more responsive.
-Wall kicks require a fresh press in the first 120 milliseconds of contact.
-There is 35 milliseconds of grace after leaving the wall, and a brief wall
-slide. Alternate walls rather than hanging on one wall indefinitely.
-
-DISPLAY OPTIONS
-Default: 1280 x 720 render resolution, 60 FPS cap, windowed.
-F2 opens Options directly. Change rows with left/right, then Apply and Save.
-Resolutions: 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440.
+OPTIONS
+F2, or Options in the pause menu. Apply and Save commits your draft changes.
+Default: 1280x720 render resolution, 60 FPS cap, windowed.
+Render sizes: 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440.
 Caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
-Deadzone: 0 to 30 percent in 5 percent steps; default is 10 percent.
-Render resolution controls the game image. Fullscreen scales that image to
-your display and preserves its aspect ratio. Window size can differ due to DPI.
-Movement simulation stays at 120 Hz, independently of the rendered frame cap.
-The HUD and Options show actual FPS, which can be below the selected cap.
-Preferences are saved in %LOCALAPPDATA%\Rust3D\stride-options.cfg.
+Fullscreen scales the render image to the display and preserves aspect ratio.
+Window size can differ due to desktop DPI. Actual FPS is shown onscreen.
+Movement stays at 120 Hz. Rendering blends character/camera states between
+physics updates; changing the cap does not change the movement constants.
+Camera Settings: sensitivity, invert vertical look, automatic alignment.
+Automatic alignment is off by default and pauses during manual camera input.
+Controller Settings: separate stick deadzones (0-30%), jump/dive/sprint/recenter
+bindings, vibration. Assigning an occupied button swaps the two actions.
+Sound Settings: synthesized movement effects volume (0 mutes).
+Preferences: %LOCALAPPDATA%\Rust3D\stride-options.cfg.
+Existing 0.2 preferences remain compatible.
 
-This first prototype uses a box character collider and static blocks/wedges.
-The robot, level, shaders, and font are procedural.
-No audio, vibration, or controller rebinding yet.
+MOVEMENT FEEDBACK
+Smoother camera obstruction handling and capsule corners, dive/roll animations,
+landing squash, dust puffs, a landing-position marker and procedural movement
+sounds. Supported controllers can vibrate briefly on movement events.
+Sound/vibration availability depends on your output device and controller.
+If no audio device is available, the game continues silently.
+
+This prototype uses a variable-height upright capsule and static blocks/ramps.
+Arbitrary meshes, moving platforms, an editor and music are future work.
+The robot, level, shaders, font and movement effects are generated in code.
 
 TROUBLESHOOTING
 If startup fails, update your GPU driver and look for stride-error.log
 beside Stride.exe. The executable is unsigned.
-
 Source: https://github.com/esotericode/Rust3D

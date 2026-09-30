@@ -4,16 +4,17 @@ use miniquad::{window, EventHandler, KeyCode, KeyMods, MouseButton};
 use std::collections::HashSet;
 use stride::{
     engine::{
+        audio::{Audio, Cue},
         camera::Camera,
         controller::Controller,
         frame::FramePacer,
         mesh::Mesh,
-        physics::{Input, Player},
+        physics::{Input, Move, Player},
         renderer::{viewport, GpuMesh, Renderer},
         ui::{Ui, INK, MUTED, WHITE},
         FIXED_DT,
     },
-    settings::Settings,
+    settings::{Settings, BUTTON_NAMES},
     world::{World, CONCRETE, LEVEL_CENTER, LEVEL_SIZE, MINT, NAVY, ORANGE, SPAWN, TOWER},
 };
 
@@ -22,6 +23,12 @@ pub struct Game {
     scenery: GpuMesh,
     world: World,
     player: Player,
+    previous_player: Player,
+    previous_camera: Camera,
+    audio: Audio,
+    dust: Vec<Dust>,
+    landing_squash: f32,
+    step_distance: f32,
     camera: Camera,
     keys: HashSet<KeyCode>,
     controller: Controller,
@@ -32,6 +39,7 @@ pub struct Game {
     menu_direction: (i32, i32),
     menu_repeat: f32,
     jump_pending: bool,
+    dive_pending: bool,
     orbit: bool,
     mouse: (f32, f32),
     accumulator: f32,
@@ -66,6 +74,12 @@ impl Game {
             scenery,
             world,
             player: Player::default(),
+            previous_player: Player::default(),
+            previous_camera: Camera::new(SPAWN),
+            audio: Audio::new(!args.iter().any(|s| s == "--smoke-test")),
+            dust: Vec::new(),
+            landing_squash: 0.,
+            step_distance: 0.,
             camera: Camera::new(SPAWN),
             keys: HashSet::new(),
             controller: Controller::default(),
@@ -76,6 +90,7 @@ impl Game {
             menu_direction: (0, 0),
             menu_repeat: 0.,
             jump_pending: false,
+            dive_pending: false,
             orbit: false,
             mouse: (0., 0.),
             accumulator: 0.,
@@ -85,7 +100,7 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "STRIDE 0.2 / MORE ROOM. SHARPER MOVES.".into(),
+            toast_text: "STRIDE 0.3 / DIVE. LAND. ROLL OUT.".into(),
             best: None,
             frames: 0,
             screenshot,
@@ -107,6 +122,31 @@ impl Game {
             game.camera.update(game.player.pos, &game.world, 1.);
             game.collected = 5;
             game.toast = 0.;
+        }
+        if args.iter().any(|s| s == "--dive-view") {
+            game.player.step(
+                Input {
+                    dive: true,
+                    ..Default::default()
+                },
+                0.,
+                &game.world,
+                FIXED_DT,
+            );
+            for _ in 0..15 {
+                game.player
+                    .step(Input::default(), 0., &game.world, FIXED_DT);
+            }
+        }
+        game.sync_render();
+        if args.iter().any(|s| s == "--controller-options") {
+            game.open(Screen::Controller);
+        }
+        if args.iter().any(|s| s == "--camera-options") {
+            game.open(Screen::Camera);
+        }
+        if args.iter().any(|s| s == "--pause-view") {
+            game.open(Screen::Pause);
         }
         if args.iter().any(|s| s == "--options") {
             game.open(Screen::Options);
@@ -135,30 +175,45 @@ impl Game {
             self.controller.state.movement
         }
     }
+    fn sync_render(&mut self) {
+        self.previous_player = self.player.clone();
+        self.previous_camera = self.camera.clone();
+    }
     fn respawn(&mut self) {
         self.player.respawn(self.checkpoint + Vec3::Y * 0.08);
         self.camera = Camera::new(self.player.pos);
+        self.sync_render();
+        self.dust.clear();
+        self.step_distance = 0.;
         self.toast_text = "BACK AT YOUR CHECKPOINT / KEEP GOING".into();
         self.toast = 3.;
     }
     fn restart(&mut self) {
         self.player = Player::default();
         self.camera = Camera::new(SPAWN);
+        self.sync_render();
+        self.dust.clear();
+        self.step_distance = 0.;
         self.collected = 0;
         self.elapsed = 0.;
         self.started = false;
         self.checkpoint = SPAWN;
         self.jump_pending = false;
+        self.dive_pending = false;
         self.toast_text = "NEW RUN / SEVEN BEACONS. YOUR ROUTE.".into();
         self.toast = 4.;
     }
     fn clear_input(&mut self) {
         self.keys.clear();
         self.jump_pending = false;
+        self.dive_pending = false;
         self.orbit = false;
         self.accumulator = 0.;
         self.menu_direction = (0, 0);
         self.menu_repeat = 0.;
+        self.sync_render();
+        self.controller.stop_rumble();
+        self.audio.silence();
     }
     fn open(&mut self, screen: Screen) {
         self.clear_input();
@@ -169,10 +224,12 @@ impl Game {
         self.clear_input();
     }
     fn back(&mut self) {
-        if self.menu.screen == Some(Screen::Pause) {
-            self.resume();
-        } else {
-            self.open(Screen::Pause);
+        match self.menu.screen {
+            Some(Screen::Pause) => self.resume(),
+            Some(Screen::Camera | Screen::Controller | Screen::Audio) => {
+                self.menu.open_sub(Screen::Options)
+            }
+            _ => self.open(Screen::Pause),
         }
     }
     fn action(&mut self, action: Action) {
@@ -181,6 +238,14 @@ impl Game {
             Action::Resume => self.resume(),
             Action::Options => self.open(Screen::Options),
             Action::Help => self.open(Screen::Help),
+            Action::Camera => self.menu.open_sub(Screen::Camera),
+            Action::Controller => self.menu.open_sub(Screen::Controller),
+            Action::Audio => self.menu.open_sub(Screen::Audio),
+            Action::Respawn => {
+                self.respawn();
+                self.resume();
+            }
+            Action::RequestRestart => self.open(Screen::ConfirmRestart),
             Action::Restart => {
                 self.restart();
                 self.resume();
@@ -189,6 +254,8 @@ impl Game {
             Action::Back => self.back(),
             Action::Apply => {
                 self.settings = self.menu.draft.clone();
+                self.controller.stop_rumble();
+                self.audio.silence();
                 self.renderer.resize(self.settings.size());
                 window::set_fullscreen(self.settings.fullscreen);
                 if !self.settings.fullscreen {
@@ -208,7 +275,7 @@ impl Game {
         self.action(action);
     }
     fn poll_controller(&mut self, dt: f32) {
-        self.controller.poll(self.settings.deadzone());
+        self.controller.poll(&self.settings);
         let pad = self.controller.state;
         if pad.pause {
             if self.paused() {
@@ -261,20 +328,19 @@ impl Game {
                 };
             }
             self.menu_direction = direction;
-            if pad.jump {
+            if pad.confirm {
                 self.confirm();
             }
         } else {
             self.jump_pending |= pad.jump;
-            if pad.respawn {
-                self.respawn();
-            }
+            self.dive_pending |= pad.dive;
             if pad.recenter {
-                self.camera.yaw = self.player.facing;
+                self.camera.recenter(self.player.facing);
             }
         }
     }
     fn tick(&mut self) {
+        self.sync_render();
         let movement = self.movement();
         if movement.length_squared() > 0. && !self.started {
             self.started = true;
@@ -283,8 +349,14 @@ impl Game {
             self.elapsed += FIXED_DT;
         }
         let turn = self.down(KeyCode::Q) as i32 - self.down(KeyCode::E) as i32;
-        self.camera.yaw += (turn as f32 * 1.8 - self.controller.state.camera.x * 2.6) * FIXED_DT;
-        self.camera.pitch -= self.controller.state.camera.y * FIXED_DT * 1.8;
+        let look = self.controller.state.camera;
+        if turn != 0 || look.length_squared() > 0. {
+            let invert = if self.settings.invert_y { -1. } else { 1. };
+            self.camera.orbit(
+                (turn as f32 * 1.8 - look.x * 2.6) * FIXED_DT * self.settings.sensitivity(),
+                -look.y * FIXED_DT * 1.8 * self.settings.sensitivity() * invert,
+            );
+        }
         self.player.step(
             Input {
                 movement,
@@ -293,18 +365,26 @@ impl Game {
                     || self.controller.state.sprint,
                 jump: std::mem::take(&mut self.jump_pending),
                 jump_held: self.down(KeyCode::Space) || self.controller.state.jump_held,
+                dive: std::mem::take(&mut self.dive_pending),
             },
             self.camera.yaw,
             &self.world,
             FIXED_DT,
         );
-        self.camera.update(self.player.pos, &self.world, FIXED_DT);
+        self.camera.follow(
+            &self.player,
+            self.settings.auto_camera,
+            &self.world,
+            FIXED_DT,
+        );
+        self.feedback();
         if self.player.pos.y < -12. {
             self.respawn();
         }
         if let Some(b) = self.world.beacons.get(self.collected) {
             let difference = self.player.pos - b.pos;
             if Vec2::new(difference.x, difference.z).length() < 1.25 && difference.y.abs() < 1.3 {
+                self.audio.play(Cue::Beacon, self.settings.volume, 0.65);
                 self.checkpoint = b.pos;
                 self.collected += 1;
                 self.toast = 4.;
@@ -319,6 +399,59 @@ impl Game {
         self.time += FIXED_DT;
         self.toast = (self.toast - FIXED_DT).max(0.);
     }
+    fn burst(&mut self, count: usize) {
+        for i in 0..count {
+            let a = i as f32 * 2.399;
+            self.dust.push(Dust {
+                pos: self.player.pos + Vec3::Y * 0.1,
+                velocity: vec3(a.cos() * 1.8, 1. + (i % 3) as f32 * 0.25, a.sin() * 1.8),
+                life: 0.3,
+            });
+        }
+    }
+    fn feedback(&mut self) {
+        let prev = &self.previous_player;
+        let cue = if self.player.wall_kicks != prev.wall_kicks {
+            Some(Cue::Kick)
+        } else if self.player.dives != prev.dives {
+            Some(Cue::Dive)
+        } else if self.player.rollouts != prev.rollouts {
+            Some(Cue::Roll)
+        } else if self.player.jumps != prev.jumps {
+            Some(Cue::Jump)
+        } else if self.player.landings != prev.landings {
+            Some(Cue::Land)
+        } else {
+            None
+        };
+        if let Some(cue) = cue {
+            self.audio.play(cue, self.settings.volume, 0.9);
+            self.controller.rumble(self.settings.vibration, 9000, 18000);
+            if matches!(cue, Cue::Land) {
+                self.landing_squash = (self.player.impact_speed / 70.).clamp(0.04, 0.20);
+                self.burst(10);
+            } else {
+                self.burst(5);
+            }
+        }
+        if self.player.grounded && self.player.speed() > 1. && self.player.motion == Move::Normal {
+            self.step_distance += self.player.speed() * FIXED_DT;
+            if self.step_distance > 1.8 {
+                self.step_distance -= 1.8;
+                self.audio.play(Cue::Step, self.settings.volume, 0.45);
+                self.burst(2);
+            }
+        } else {
+            self.step_distance = 0.;
+        }
+        self.landing_squash = (self.landing_squash - FIXED_DT * 1.4).max(0.);
+        for d in &mut self.dust {
+            d.life -= FIXED_DT;
+            d.pos += d.velocity * FIXED_DT;
+            d.velocity.y -= 5. * FIXED_DT;
+        }
+        self.dust.retain(|d| d.life > 0.);
+    }
     fn hud(&self, matrix: Mat4) -> Ui {
         let (w, h) = (1280., 720.);
         let mut ui = Ui::default();
@@ -329,7 +462,7 @@ impl Game {
         ui.text(
             44.,
             110.,
-            &format!("FPS {:.0} / SIM 120 HZ / V0.2", self.fps),
+            &format!("FPS {:.0} / SIM 120 HZ / V0.3", self.fps),
             1.,
             MINT,
         );
@@ -416,14 +549,21 @@ impl Game {
             ui.text(
                 40.,
                 h - 65.,
-                "LEFT STICK MOVE   A JUMP   RT SPRINT   RT + A LONG JUMP",
+                &format!(
+                    "LEFT STICK MOVE   {} JUMP   {} DIVE",
+                    BUTTON_NAMES[self.settings.bindings[0]],
+                    BUTTON_NAMES[self.settings.bindings[1]]
+                ),
                 1.5,
                 WHITE,
             );
             ui.text(
                 40.,
                 h - 44.,
-                "RIGHT STICK CAMERA   X RESPAWN   Y RECENTER   START OPTIONS",
+                &format!(
+                    "{} SPRINT   RIGHT STICK CAMERA   START MENU / RESET",
+                    BUTTON_NAMES[self.settings.bindings[2]]
+                ),
                 1.2,
                 MUTED,
             );
@@ -431,14 +571,14 @@ impl Game {
             ui.text(
                 40.,
                 h - 65.,
-                "WASD MOVE   HOLD SPACE HIGH JUMP   SHIFT + SPACE LONG JUMP",
+                "WASD MOVE   SPACE JUMP / ROLLOUT   F DIVE   SHIFT SPRINT",
                 1.5,
                 WHITE,
             );
             ui.text(
                 40.,
                 h - 44.,
-                "R RESPAWN   Q/E OR RIGHT DRAG CAMERA   F1 CONTROLS",
+                "Q/E OR RIGHT DRAG CAMERA   C RECENTER   F1 CONTROLS",
                 1.2,
                 MUTED,
             );
@@ -491,13 +631,25 @@ impl EventHandler for Game {
             return;
         }
         let (rw, rh) = self.renderer.size;
-        let matrix = self.camera.matrix(rw as f32 / rh as f32);
+        let alpha = if self.paused() {
+            1.
+        } else {
+            self.accumulator / FIXED_DT
+        };
+        let camera = self.camera.interpolated(&self.previous_camera, alpha);
+        let player = self.player.interpolated(&self.previous_player, alpha);
+        let matrix = camera.matrix(rw as f32 / rh as f32);
         self.renderer.begin();
-        self.renderer
-            .static_mesh(&self.scenery, matrix, self.camera.eye);
-        let dynamic = build_dynamic(&self.world, &self.player, self.time, self.collected);
-        self.renderer
-            .dynamic(&dynamic, matrix, self.camera.eye, false);
+        self.renderer.static_mesh(&self.scenery, matrix, camera.eye);
+        let dynamic = build_dynamic(
+            &self.world,
+            &player,
+            self.time,
+            self.collected,
+            &self.dust,
+            self.landing_squash,
+        );
+        self.renderer.dynamic(&dynamic, matrix, camera.eye, false);
         let hud = self.hud(matrix);
         self.renderer.dynamic(
             &hud.mesh,
@@ -513,8 +665,8 @@ impl EventHandler for Game {
         });
         if self.smoke && self.frames >= self.smoke_frames {
             println!(
-                "SMOKE: {} frames / {:.1} FPS / render {}x{} / simulated {:.3}s",
-                self.frames, self.fps, rw, rh, self.time
+                "SMOKE: {} frames / {:.1} FPS / render {}x{} / simulated {:.3}s / dives {} / rollouts {} / beacons {} / run {:.3}s",
+                self.frames, self.fps, rw, rh, self.time,self.player.dives,self.player.rollouts,self.collected,self.elapsed
             );
             window::order_quit();
         }
@@ -566,8 +718,8 @@ impl EventHandler for Game {
             return;
         }
         match key {
-            KeyCode::Enter => self.restart(),
-            KeyCode::R => self.respawn(),
+            KeyCode::F => self.dive_pending = true,
+            KeyCode::C => self.camera.recenter(self.player.facing),
             KeyCode::Space => self.jump_pending = true,
             _ => {}
         }
@@ -578,8 +730,11 @@ impl EventHandler for Game {
     }
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
         if self.orbit && !self.paused() {
-            self.camera.yaw -= (x - self.mouse.0) * 0.006;
-            self.camera.pitch += (y - self.mouse.1) * 0.004;
+            let invert = if self.settings.invert_y { -1. } else { 1. };
+            self.camera.orbit(
+                -(x - self.mouse.0) * 0.006 * self.settings.sensitivity(),
+                (y - self.mouse.1) * 0.004 * self.settings.sensitivity() * invert,
+            );
         }
         if self.paused() {
             let (ux, uy) = self.ui_position(x, y);
@@ -598,7 +753,13 @@ impl EventHandler for Game {
             let (ux, uy) = self.ui_position(x, y);
             if let Some(row) = self.menu.row_at(ux, uy) {
                 self.menu.selected = row;
-                if self.menu.screen == Some(Screen::Options) && row < 4 {
+                let editable = match self.menu.screen {
+                    Some(Screen::Options | Screen::Camera) => row < 3,
+                    Some(Screen::Controller) => row < 7,
+                    Some(Screen::Audio) => row == 0,
+                    _ => false,
+                };
+                if editable {
                     self.menu.adjust(if ux < 700. { -1 } else { 1 });
                 } else {
                     self.confirm();
@@ -725,11 +886,27 @@ fn build_scene(world: &World) -> Mesh {
     m
 }
 
-fn build_dynamic(world: &World, p: &Player, time: f32, collected: usize) -> Mesh {
+struct Dust {
+    pos: Vec3,
+    velocity: Vec3,
+    life: f32,
+}
+fn build_dynamic(
+    world: &World,
+    p: &Player,
+    time: f32,
+    collected: usize,
+    dust: &[Dust],
+    squash: f32,
+) -> Mesh {
     let mut m = Mesh::default();
     if let Some(y) = world.floor_height(p.pos) {
-        let size = 0.55 + (p.pos.y - y) * 0.02;
-        m.disc(vec3(p.pos.x, y + 0.012, p.pos.z), size, [0.36, 0.44, 0.45]);
+        let height = (p.pos.y - y).max(0.);
+        let size = 0.5 + height.min(10.) * 0.025;
+        m.disc(vec3(p.pos.x, y + 0.012, p.pos.z), size, [0.30, 0.39, 0.41]);
+        if height > 0.3 {
+            m.ring(vec3(p.pos.x, y + 0.025, p.pos.z), 0.36, 0.035, MINT);
+        }
     }
     let start = m.vertices.len();
     // Courier: a little robot with a visor, backpack, and articulated legs.
@@ -780,8 +957,34 @@ fn build_dynamic(world: &World, p: &Player, time: f32, collected: usize) -> Mesh
     }
     m.transform_from(
         start,
-        Mat4::from_translation(p.pos + Vec3::Y * 0.02) * Mat4::from_rotation_y(p.facing),
+        Mat4::from_translation(p.pos + Vec3::Y * 0.02)
+            * Mat4::from_rotation_y(p.facing)
+            * match p.motion {
+                Move::Dive | Move::Slide => {
+                    Mat4::from_translation(Vec3::Y * 0.45)
+                        * Mat4::from_rotation_x(-1.32)
+                        * Mat4::from_translation(Vec3::Y * -0.8)
+                }
+                Move::Rollout => {
+                    Mat4::from_translation(Vec3::Y * 0.8)
+                        * Mat4::from_rotation_x(
+                            -std::f32::consts::TAU * (p.motion_time / 0.45).min(1.),
+                        )
+                        * Mat4::from_translation(Vec3::Y * -0.8)
+                }
+                Move::Normal => {
+                    Mat4::from_scale(vec3(1. + squash * 0.7, 1. - squash, 1. + squash * 0.7))
+                }
+            },
     );
+    for d in dust {
+        m.cube(
+            d.pos,
+            Vec3::splat(0.06 + d.life * 0.12),
+            [0.73, 0.80, 0.75],
+            0.,
+        );
+    }
     for (i, b) in world.beacons.iter().enumerate() {
         let c = if i < collected {
             MINT

@@ -1,6 +1,6 @@
 [package]
 name = "stride"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A custom Rust 3D engine and movement playground"
 license = "MIT"
@@ -9,6 +9,7 @@ license = "MIT"
 miniquad = "=0.4.11"
 glam = "=0.30.9"
 gilrs = "=0.11.2"
+cpal = "=0.16.0"
 
 [profile.release]
 lto = true
