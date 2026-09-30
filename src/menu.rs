@@ -13,6 +13,7 @@ pub enum Screen {
     Audio,
     Help,
     ConfirmRestart,
+    Course,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
@@ -26,6 +27,10 @@ pub enum Action {
     Respawn,
     RequestRestart,
     Restart,
+    Course,
+    StartCourse,
+    Practice(usize),
+    Playground,
     Quit,
     Apply,
     Back,
@@ -56,7 +61,8 @@ impl Menu {
     }
     pub fn rows(&self) -> usize {
         match self.screen {
-            Some(Screen::Pause) => 6,
+            Some(Screen::Pause) => 8,
+            Some(Screen::Course) => 10,
             Some(Screen::Options) => 8,
             Some(Screen::Camera) => 5,
             Some(Screen::Controller) => 9,
@@ -133,8 +139,15 @@ impl Menu {
                 Action::Help,
                 Action::Respawn,
                 Action::RequestRestart,
+                Action::Course,
+                Action::Playground,
                 Action::Quit,
             ][self.selected],
+            Some(Screen::Course) => match self.selected {
+                0 => Action::StartCourse,
+                1..=8 => Action::Practice(self.selected - 1),
+                _ => Action::Back,
+            },
             Some(Screen::Options) => match self.selected {
                 3 => Action::Camera,
                 4 => Action::Controller,
@@ -214,6 +227,7 @@ impl Menu {
             119.,
             match screen {
                 Screen::Pause => "TAKE A BREATHER",
+                Screen::Course => "SKYWAY / CHOOSE A RUN",
                 Screen::Options => "OPTIONS",
                 Screen::Camera => "CAMERA",
                 Screen::Controller => "CONTROLLER",
@@ -273,7 +287,7 @@ impl Menu {
             342.,
             167.,
             if screen == Screen::ConfirmRestart {
-                "THIS CLEARS YOUR BEACONS AND CURRENT RUN TIMER."
+                "THIS RESTARTS THE ACTIVE COURSE AND ITS RUN TIMER."
             } else {
                 "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER OR A CONFIRM"
             },
@@ -333,7 +347,21 @@ impl Menu {
                 "CONTROLS",
                 "RESPAWN AT CHECKPOINT",
                 "RESTART COURSE",
+                "SKYWAY / SECTION PRACTICE",
+                "RETURN TO PLAYGROUND",
                 "EXIT GAME",
+            ],
+            Screen::Course => &[
+                "START FULL SKYWAY COURSE",
+                "PRACTICE 1 / BOARDING",
+                "PRACTICE 2 / CROSSWIND",
+                "PRACTICE 3 / LIFT WORKS",
+                "PRACTICE 4 / DIAGONAL DOCK",
+                "PRACTICE 5 / CLOCKWORK",
+                "PRACTICE 6 / LEAP AND DIVE",
+                "PRACTICE 7 / HIGH HARBOR",
+                "PRACTICE 8 / SUMMIT",
+                "BACK",
             ],
             Screen::Options => &[
                 "RENDER RESOLUTION",
@@ -371,6 +399,22 @@ impl Menu {
             self.row(ui, i, 190. + i as f32 * 36., label, &values[i]);
         }
         match screen {
+            Screen::Course => {
+                ui.text(
+                    342.,
+                    566.,
+                    "AMBER MOVES / MINT IS FIXED / VIOLET SAVES A CHECKPOINT",
+                    1.2,
+                    MUTED,
+                );
+                ui.text(
+                    342.,
+                    607.,
+                    "PRACTICE RUNS HAVE NO BEST TIME. PAUSE FREEZES PLATFORMS.",
+                    1.2,
+                    MUTED,
+                );
+            }
             Screen::Options => {
                 let (w, h) = applied.size();
                 ui.text(
@@ -434,7 +478,9 @@ impl Menu {
             ),
             _ => {}
         }
-        ui.text(342., 579., "ESC OR B BACK", 1.3, WHITE);
+        if screen != Screen::Course {
+            ui.text(342., 579., "ESC OR B BACK", 1.3, WHITE);
+        }
         ui.text(342., 607., &self.status, 1.3, MINT);
     }
     fn row(&self, ui: &mut Ui, index: usize, y: f32, label: &str, value: &str) {
@@ -500,6 +546,7 @@ mod tests {
             Screen::Audio,
             Screen::Help,
             Screen::ConfirmRestart,
+            Screen::Course,
         ] {
             menu.open(screen, &settings);
             for i in 0..menu.rows() {

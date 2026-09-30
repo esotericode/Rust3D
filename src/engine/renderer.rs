@@ -317,7 +317,7 @@ void main() {
     color = in_color * (in_style > 1.5 ? 1.0 : light);
     position = in_pos;
     grid = in_style > 0.5 && in_style < 1.5 && in_normal.y > 0.9 ? 1.0 : 0.0;
-    fog = clamp((length(eye-in_pos)-28.0)/95.0,0.0,0.8);
+    fog = clamp((length(eye-in_pos)-45.0)/210.0,0.0,0.8);
 }"#;
 const WORLD_FRAGMENT: &str = r#"#version 100
 precision mediump float;

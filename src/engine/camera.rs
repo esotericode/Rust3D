@@ -91,7 +91,7 @@ impl Camera {
         let mut fraction = 1_f32;
         // Sweep a padded camera boom rather than sampling block corners. Retract
         // immediately to avoid clipping; recover distance smoothly when clear.
-        for s in &world.solids {
+        for s in world.collision_solids() {
             if let Some(hit) = ray_box(
                 self.target,
                 offset,
@@ -127,7 +127,7 @@ impl Camera {
         c
     }
     pub fn matrix(&self, aspect: f32) -> Mat4 {
-        Mat4::perspective_rh_gl(58_f32.to_radians(), aspect, 0.08, 180.)
+        Mat4::perspective_rh_gl(58_f32.to_radians(), aspect, 0.08, 550.)
             * Mat4::look_at_rh(self.eye, self.target, Vec3::Y)
     }
 }

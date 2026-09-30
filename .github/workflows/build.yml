@@ -31,6 +31,9 @@ jobs:
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --controller-options --screenshot controller.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --dive-view --screenshot dive.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --help-view --screenshot controls.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-overview --screenshot skyway.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-view 4 --screenshot clockwork.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-menu --screenshot course-menu.ppm
       - uses: actions/upload-artifact@v4
         with:
           name: stride-render-smoke-test
@@ -50,7 +53,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/Stride-Windows
           Copy-Item target/release/stride.exe dist/Stride-Windows/Stride.exe
-          Copy-Item PLAY.txt,LICENSE,THIRD_PARTY.txt dist/Stride-Windows/
+          Copy-Item PLAY.txt,COURSE.md,LICENSE,THIRD_PARTY.txt dist/Stride-Windows/
           Copy-Item -Recurse licenses dist/Stride-Windows/licenses
           Compress-Archive -Path dist/Stride-Windows -DestinationPath dist/Stride-Windows.zip
           Get-FileHash dist/Stride-Windows.zip -Algorithm SHA256 | Format-List | Out-File dist/SHA256.txt

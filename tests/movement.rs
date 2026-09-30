@@ -12,6 +12,9 @@ fn floor() -> World {
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(100., 1., 100.), NAVY)],
         ramps: vec![],
         beacons: vec![],
+        platforms: vec![],
+        course: Default::default(),
+        time: 0.,
     }
 }
 fn player(pos: Vec3) -> Player {
@@ -239,6 +242,9 @@ fn walking_off_edge_keeps_a_short_coyote_jump() {
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(2., 1., 2.), NAVY)],
         ramps: vec![],
         beacons: vec![],
+        platforms: vec![],
+        course: Default::default(),
+        time: 0.,
     };
     let mut p = player(vec3(1.31, 0., 0.));
     p.velocity.x = 6.2;

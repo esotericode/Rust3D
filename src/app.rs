@@ -3,6 +3,7 @@ use glam::{vec3, Mat4, Vec2, Vec3};
 use miniquad::{window, EventHandler, KeyCode, KeyMods, MouseButton};
 use std::collections::HashSet;
 use stride::{
+    course::{Run, Surface, AMBER, SECTIONS, VIOLET},
     engine::{
         audio::{Audio, Cue},
         camera::Camera,
@@ -51,6 +52,9 @@ pub struct Game {
     toast: f32,
     toast_text: String,
     best: Option<f32>,
+    course_run: Option<Run>,
+    course_best: Option<f32>,
+    course_overview: bool,
     frames: u32,
     screenshot: Option<String>,
     smoke: bool,
@@ -100,8 +104,11 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "STRIDE 0.3 / DIVE. LAND. ROLL OUT.".into(),
+            toast_text: "STRIDE 0.4 / SKYWAY IN THE PAUSE MENU".into(),
             best: None,
+            course_run: None,
+            course_best: None,
+            course_overview: args.iter().any(|s| s == "--course-overview"),
             frames: 0,
             screenshot,
             smoke: args.iter().any(|s| s == "--smoke-test"),
@@ -138,6 +145,18 @@ impl Game {
                     .step(Input::default(), 0., &game.world, FIXED_DT);
             }
         }
+        if let Some(section) = args
+            .iter()
+            .position(|s| s == "--course-view")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            game.start_course(Some(section.min(7)));
+        }
+        if game.course_overview {
+            game.start_course(None);
+            game.toast = 0.;
+        }
         game.sync_render();
         if args.iter().any(|s| s == "--controller-options") {
             game.open(Screen::Controller);
@@ -147,6 +166,9 @@ impl Game {
         }
         if args.iter().any(|s| s == "--pause-view") {
             game.open(Screen::Pause);
+        }
+        if args.iter().any(|s| s == "--course-menu") {
+            game.open(Screen::Course);
         }
         if args.iter().any(|s| s == "--options") {
             game.open(Screen::Options);
@@ -160,7 +182,7 @@ impl Game {
         self.keys.contains(&key)
     }
     fn paused(&self) -> bool {
-        self.menu.screen.is_some()
+        self.menu.screen.is_some() || self.course_overview
     }
     fn movement(&self) -> Vec2 {
         let keyboard = Vec2::new(
@@ -179,9 +201,47 @@ impl Game {
         self.previous_player = self.player.clone();
         self.previous_camera = self.camera.clone();
     }
-    fn respawn(&mut self) {
+    fn start_course(&mut self, practice: Option<usize>) {
+        self.world.reset_platforms();
+        self.course_run = Some(Run::new(&self.world.course, practice));
+        let run = self.course_run.as_ref().unwrap();
+        self.checkpoint = self.world.course.nodes[run.checkpoint].position(&self.world);
+        self.player = Player::default();
         self.player.respawn(self.checkpoint + Vec3::Y * 0.08);
         self.camera = Camera::new(self.player.pos);
+        let next = self.world.course.nodes[run.next].position(&self.world);
+        let direction = next - self.checkpoint;
+        self.camera.yaw = (-direction.x).atan2(-direction.z);
+        self.player.facing = self.camera.yaw;
+        self.camera.distance = 12.;
+        self.camera.update(self.player.pos, &self.world, 1.);
+        self.sync_render();
+        self.dust.clear();
+        self.step_distance = 0.;
+        self.toast = 5.;
+        self.toast_text = if let Some(s) = practice {
+            format!("PRACTICE {} / {}", s + 1, SECTIONS[s].0)
+        } else {
+            "SKYWAY / EIGHT SECTIONS. REACH THE SUMMIT.".into()
+        };
+    }
+    fn respawn(&mut self) {
+        if let Some(run) = &mut self.course_run {
+            if !run.finished {
+                run.retry();
+            }
+            self.checkpoint = self.world.course.nodes[run.checkpoint].position(&self.world);
+        }
+        self.player.respawn(self.checkpoint + Vec3::Y * 0.08);
+        self.camera = Camera::new(self.player.pos);
+        if let Some(run) = &self.course_run {
+            if let Some(node) = self.world.course.nodes.get(run.next) {
+                let direction = node.position(&self.world) - self.checkpoint;
+                self.camera.yaw = (-direction.x).atan2(-direction.z);
+                self.player.facing = self.camera.yaw;
+                self.camera.update(self.player.pos, &self.world, 1.);
+            }
+        }
         self.sync_render();
         self.dust.clear();
         self.step_distance = 0.;
@@ -189,6 +249,11 @@ impl Game {
         self.toast = 3.;
     }
     fn restart(&mut self) {
+        if let Some(run) = &self.course_run {
+            let practice = run.practice;
+            self.start_course(practice);
+            return;
+        }
         self.player = Player::default();
         self.camera = Camera::new(SPAWN);
         self.sync_render();
@@ -212,6 +277,9 @@ impl Game {
         self.menu_direction = (0, 0);
         self.menu_repeat = 0.;
         self.sync_render();
+        for p in &mut self.world.platforms {
+            p.previous_center = (p.solid.min + p.solid.max) * 0.5;
+        }
         self.controller.stop_rumble();
         self.audio.silence();
     }
@@ -238,6 +306,20 @@ impl Game {
             Action::Resume => self.resume(),
             Action::Options => self.open(Screen::Options),
             Action::Help => self.open(Screen::Help),
+            Action::Course => self.open(Screen::Course),
+            Action::StartCourse => {
+                self.start_course(None);
+                self.resume();
+            }
+            Action::Practice(s) => {
+                self.start_course(Some(s));
+                self.resume();
+            }
+            Action::Playground => {
+                self.course_run = None;
+                self.restart();
+                self.resume();
+            }
             Action::Camera => self.menu.open_sub(Screen::Camera),
             Action::Controller => self.menu.open_sub(Screen::Controller),
             Action::Audio => self.menu.open_sub(Screen::Audio),
@@ -345,9 +427,7 @@ impl Game {
         if movement.length_squared() > 0. && !self.started {
             self.started = true;
         }
-        if self.started && self.collected < self.world.beacons.len() {
-            self.elapsed += FIXED_DT;
-        }
+        self.world.advance(FIXED_DT);
         let turn = self.down(KeyCode::Q) as i32 - self.down(KeyCode::E) as i32;
         let look = self.controller.state.camera;
         if turn != 0 || look.length_squared() > 0. {
@@ -378,10 +458,52 @@ impl Game {
             FIXED_DT,
         );
         self.feedback();
-        if self.player.pos.y < -12. {
+        if self.course_run.is_none()
+            && self.world.course.nodes[0].reached(&self.world, &self.player)
+        {
+            // Walking up the entrance ramp starts a full run without a teleport.
+            self.world.reset_platforms();
+            self.course_run = Some(Run::new(&self.world.course, None));
+            self.checkpoint = self.world.course.nodes[0].position(&self.world);
+            self.toast_text = "SKYWAY / BOARD THE AMBER SHUTTLE".into();
+            self.toast = 5.;
+        }
+        if let Some(run) = &mut self.course_run {
+            if run.advance(&self.world, &self.player) {
+                self.checkpoint = self.world.course.nodes[run.checkpoint].position(&self.world);
+                self.audio.play(Cue::Beacon, self.settings.volume, 0.65);
+                self.toast_text = format!(
+                    "CHECKPOINT SAVED / {}",
+                    SECTIONS[run.section(&self.world.course)].0
+                );
+                self.toast = 4.;
+                if run.finished {
+                    if run.practice.is_none() {
+                        self.course_best =
+                            Some(self.course_best.map_or(run.elapsed, |t| t.min(run.elapsed)));
+                    }
+                    self.toast_text = if run.practice.is_some() {
+                        "SECTION COMPLETE / CHOOSE ANOTHER IN PAUSE".into()
+                    } else {
+                        "SKYWAY COMPLETE / YOU REACHED THE SUMMIT!".into()
+                    };
+                    self.toast = 8.;
+                }
+            }
+        }
+        let missed_course = self
+            .course_run
+            .as_ref()
+            .is_some_and(|r| !r.finished && self.player.pos.y < self.checkpoint.y - 6.);
+        if self.player.pos.y < -12. || self.player.crushed || missed_course {
             self.respawn();
         }
-        if let Some(b) = self.world.beacons.get(self.collected) {
+        if let Some(b) = self
+            .world
+            .beacons
+            .get(self.collected)
+            .filter(|_| self.course_run.is_none())
+        {
             let difference = self.player.pos - b.pos;
             if Vec2::new(difference.x, difference.z).length() < 1.25 && difference.y.abs() < 1.3 {
                 self.audio.play(Cue::Beacon, self.settings.volume, 0.65);
@@ -462,7 +584,7 @@ impl Game {
         ui.text(
             44.,
             110.,
-            &format!("FPS {:.0} / SIM 120 HZ / V0.3", self.fps),
+            &format!("FPS {:.0} / SIM 120 HZ / V0.4", self.fps),
             1.,
             MINT,
         );
@@ -471,10 +593,21 @@ impl Game {
         ui.text(
             x + 18.,
             40.,
-            &format!(
-                "BEACONS {:02} / {:02}",
-                self.collected,
-                self.world.beacons.len()
+            &self.course_run.as_ref().map_or_else(
+                || {
+                    format!(
+                        "BEACONS {:02} / {:02}",
+                        self.collected,
+                        self.world.beacons.len()
+                    )
+                },
+                |r| {
+                    format!(
+                        "SKYWAY {:02} / {:02}",
+                        r.next.min(self.world.course.nodes.len()),
+                        self.world.course.nodes.len()
+                    )
+                },
             ),
             2.,
             WHITE,
@@ -482,15 +615,22 @@ impl Game {
         ui.text(
             x + 18.,
             76.,
-            &format!("TIME {:05.1} S", self.elapsed),
+            &format!(
+                "TIME {:05.1} S",
+                self.course_run.as_ref().map_or(self.elapsed, |r| r.elapsed)
+            ),
             2.,
             MINT,
         );
-        if let Some(best) = self.best {
+        if let Some(best) = if self.course_run.is_some() {
+            self.course_best
+        } else {
+            self.best
+        } {
             ui.text(x + 18., 110., &format!("BEST {:.1} S", best), 1., MUTED);
         }
         for (i, b) in self.world.beacons.iter().enumerate() {
-            if i < self.collected {
+            if self.course_run.is_some() || i < self.collected {
                 continue;
             }
             let p = matrix * (b.pos + Vec3::Y * 2.5).extend(1.);
@@ -527,21 +667,81 @@ impl Game {
             1.,
             MUTED,
         );
-        let hint = self
-            .world
-            .beacons
-            .get(self.collected)
-            .map_or("COMPLETE / RESTART IN PAUSE", |b| b.name);
-        ui.rect(w - 366., h - 166., 342., 70., INK);
-        ui.text(w - 349., h - 151., "NEXT BEACON", 1., MUTED);
-        ui.text(w - 349., h - 132., hint, 1.25, WHITE);
-        if let Some(b) = self.world.beacons.get(self.collected) {
+        ui.rect(w - 442., h - 166., 418., 70., INK);
+        if let Some(run) = &self.course_run {
+            let section = run.section(&self.world.course);
             ui.text(
-                w - 349.,
+                w - 425.,
+                h - 151.,
+                &format!(
+                    "{} {:02}/08 / {}",
+                    if run.practice.is_some() {
+                        "PRACTICE"
+                    } else {
+                        "SECTION"
+                    },
+                    section + 1,
+                    SECTIONS[section].0
+                ),
+                1.2,
+                VIOLET,
+            );
+            ui.text(
+                w - 425.,
+                h - 132.,
+                if run.finished {
+                    "COMPLETE / CHOOSE A NEW RUN IN PAUSE"
+                } else {
+                    SECTIONS[section].1
+                },
+                1.25,
+                WHITE,
+            );
+            ui.text(
+                w - 425.,
                 h - 111.,
-                &format!("{:.0} M AWAY", (b.pos - self.player.pos).length()),
+                &format!("RETRIES {} / AMBER MOVES / MINT IS FIXED", run.failures),
                 1.,
-                ORANGE,
+                MUTED,
+            );
+            for i in run.next..(run.next + 3).min(self.world.course.nodes.len()) {
+                let node = &self.world.course.nodes[i];
+                let p = matrix * (node.position(&self.world) + Vec3::Y * 2.).extend(1.);
+                if p.w > 0. {
+                    let ndc = p.truncate() / p.w;
+                    if ndc.x.abs() < 0.92 && ndc.y.abs() < 0.65 {
+                        let (px, py) = ((ndc.x * 0.5 + 0.5) * w, (-ndc.y * 0.5 + 0.5) * h);
+                        ui.rect(px - 22., py - 12., 44., 24., INK);
+                        ui.text(
+                            px - 14.,
+                            py - 6.,
+                            &format!("{:02}", i + 1),
+                            1.5,
+                            if i == run.next { AMBER } else { MUTED },
+                        );
+                    }
+                }
+            }
+        } else {
+            ui.text(
+                w - 425.,
+                h - 151.,
+                "PLAYGROUND / SKYWAY IN PAUSE MENU",
+                1.1,
+                VIOLET,
+            );
+            let hint = self
+                .world
+                .beacons
+                .get(self.collected)
+                .map_or("COMPLETE / RESTART IN PAUSE", |b| b.name);
+            ui.text(w - 425., h - 132., hint, 1.25, WHITE);
+            ui.text(
+                w - 425.,
+                h - 111.,
+                "OR WALK UP THE WIDE RAMP TO THE EAST",
+                1.,
+                MUTED,
             );
         }
         ui.rect(24., h - 80., w - 48., 56., INK);
@@ -561,7 +761,7 @@ impl Game {
                 40.,
                 h - 44.,
                 &format!(
-                    "{} SPRINT   RIGHT STICK CAMERA   START MENU / RESET",
+                    "{} SPRINT   RIGHT STICK CAMERA   START MENU / COURSES",
                     BUTTON_NAMES[self.settings.bindings[2]]
                 ),
                 1.2,
@@ -618,6 +818,13 @@ impl EventHandler for Game {
         let dt = elapsed.min(0.1);
         self.poll_controller(dt);
         if !self.paused() {
+            let moving =
+                self.movement().length_squared() > 0. || self.jump_pending || self.dive_pending;
+            if let Some(run) = &mut self.course_run {
+                run.clock(elapsed, moving);
+            } else if self.started && self.collected < self.world.beacons.len() {
+                self.elapsed += elapsed;
+            }
             self.accumulator += dt;
             while self.accumulator >= FIXED_DT {
                 self.tick();
@@ -636,7 +843,11 @@ impl EventHandler for Game {
         } else {
             self.accumulator / FIXED_DT
         };
-        let camera = self.camera.interpolated(&self.previous_camera, alpha);
+        let mut camera = self.camera.interpolated(&self.previous_camera, alpha);
+        if self.course_overview {
+            camera.eye = vec3(265., 145., 245.);
+            camera.target = vec3(135., 18., 72.);
+        }
         let player = self.player.interpolated(&self.previous_player, alpha);
         let matrix = camera.matrix(rw as f32 / rh as f32);
         self.renderer.begin();
@@ -646,8 +857,9 @@ impl EventHandler for Game {
             &player,
             self.time,
             self.collected,
-            &self.dust,
-            self.landing_squash,
+            (&self.dust, self.landing_squash),
+            alpha,
+            self.course_run.as_ref(),
         );
         self.renderer.dynamic(&dynamic, matrix, camera.eye, false);
         let hud = self.hud(matrix);
@@ -848,6 +1060,51 @@ fn build_scene(world: &World) -> Mesh {
             );
         }
     }
+    for (i, node) in world.course.nodes.iter().enumerate() {
+        if let Surface::Fixed(_) = node.surface {
+            let p = node.position(world);
+            let slab = node.solid(world);
+            let color = if node.checkpoint { VIOLET } else { MINT };
+            for z in [slab.min.z + 0.12, slab.max.z - 0.12] {
+                m.cube(
+                    vec3(p.x, slab.max.y + 0.055, z),
+                    vec3(slab.max.x - slab.min.x, 0.025, 0.12),
+                    color,
+                    2.,
+                );
+            }
+            if node.checkpoint {
+                m.ring(p + Vec3::Y * 0.065, 1.4, 0.1, VIOLET);
+            }
+            if let Some(next) = world.course.nodes.get(i + 1) {
+                arrow(&mut m, p + Vec3::Y * 0.075, next.position(world) - p, color);
+            }
+        }
+    }
+    // Motion rails are visual guides below the pads, never invisible obstacles.
+    for p in &world.platforms {
+        let count = (p.travel.length() / 1.2).ceil().max(1.) as usize;
+        for i in 0..=count {
+            let center = p.origin + p.travel * (i as f32 / count as f32) - Vec3::Y * 0.55;
+            m.cube(center, vec3(0.12, 0.12, 0.12), AMBER, 2.);
+        }
+        for center in [p.origin, p.origin + p.travel] {
+            m.ring(center - Vec3::Y * 0.55, 0.5, 0.055, AMBER);
+        }
+    }
+    // Runway launch stripe, low dive arch and the summit finish marks.
+    m.cube(vec3(228., 29.07, 96.5), vec3(7.6, 0.025, 0.25), AMBER, 2.);
+    m.cube(vec3(228., 31.17, 118.), vec3(6.8, 0.025, 0.2), AMBER, 2.);
+    for i in 0..8 {
+        for j in 0..2 {
+            m.cube(
+                vec3(97.5 + i as f32, 44.07, 70. + j as f32),
+                vec3(1., 0.025, 1.),
+                if (i + j) % 2 == 0 { VIOLET } else { NAVY },
+                2.,
+            );
+        }
+    }
     // Starting pad and a guide stripe toward the first ramp.
     m.ring(SPAWN + Vec3::Y * 0.015, 1.5, 0.10, MINT);
     for i in 0..8 {
@@ -877,7 +1134,7 @@ fn build_scene(world: &World) -> Mesh {
         let x = (i as f32 - 8.5) * 8.;
         let height = 6. + ((i * 7) % 13) as f32;
         m.cube(
-            vec3(x, height * 0.5 - 4., -100. - ((i * 3) % 8) as f32),
+            vec3(x + 100., height * 0.5 - 4., -260. - ((i * 3) % 8) as f32),
             vec3(5., height, 5.),
             [0.49, 0.63, 0.69],
             0.,
@@ -896,10 +1153,58 @@ fn build_dynamic(
     p: &Player,
     time: f32,
     collected: usize,
-    dust: &[Dust],
-    squash: f32,
+    feedback: (&[Dust], f32),
+    alpha: f32,
+    run: Option<&Run>,
 ) -> Mesh {
     let mut m = Mesh::default();
+    let (dust, squash) = feedback;
+    for platform in &world.platforms {
+        let center = platform.rendered_center(alpha);
+        m.cube(center, platform.size, [0.36, 0.29, 0.20], 0.);
+        let top = center + Vec3::Y * (platform.size.y * 0.5 + 0.025);
+        m.cube(top, vec3(platform.size.x, 0.05, platform.size.z), AMBER, 0.);
+        for x in [-1., 1.] {
+            m.cube(
+                top + vec3(x * (platform.size.x * 0.5 - 0.15), 0.045, 0.),
+                vec3(0.18, 0.025, platform.size.z - 0.3),
+                [1., 0.90, 0.57],
+                2.,
+            );
+        }
+        arrow(
+            &mut m,
+            top + Vec3::Y * 0.055,
+            platform.travel,
+            [0.25, 0.26, 0.22],
+        );
+    }
+    let next = run.map_or(0, |r| r.next);
+    for (i, node) in world.course.nodes.iter().enumerate() {
+        if i == 0 || (i >= next && i < next + 3) {
+            let mut pos = node.position(world);
+            if let Surface::Moving(j) = node.surface {
+                pos += world.platforms[j].rendered_center(alpha)
+                    - (world.platforms[j].solid.min + world.platforms[j].solid.max) * 0.5;
+            }
+            let color = if node.checkpoint {
+                VIOLET
+            } else if i == next {
+                AMBER
+            } else {
+                MINT
+            };
+            m.ring(pos + Vec3::Y * 0.08, 0.7, 0.08, color);
+            let start = m.vertices.len();
+            m.cube(Vec3::ZERO, Vec3::splat(0.32), color, 2.);
+            m.transform_from(
+                start,
+                Mat4::from_translation(pos + Vec3::Y * 2.)
+                    * Mat4::from_rotation_y(time)
+                    * Mat4::from_rotation_z(0.7),
+            );
+        }
+    }
     if let Some(y) = world.floor_height(p.pos) {
         let height = (p.pos.y - y).max(0.);
         let size = 0.5 + height.min(10.) * 0.025;
@@ -1013,4 +1318,20 @@ fn build_dynamic(
         }
     }
     m
+}
+
+fn arrow(m: &mut Mesh, p: Vec3, direction: Vec3, color: [f32; 3]) {
+    let forward = vec3(direction.x, 0., direction.z).normalize_or_zero();
+    if forward == Vec3::ZERO {
+        m.ring(p, 0.35, 0.07, color);
+        return;
+    }
+    let right = vec3(-forward.z, 0., forward.x);
+    m.triangle(
+        p + forward * 0.9,
+        p - forward * 0.35 + right * 0.5,
+        p - forward * 0.35 - right * 0.5,
+        color,
+        2.,
+    );
 }

@@ -1,10 +1,11 @@
 # Stride / Rust3D
 
 A custom Rust 3D engine and third-person movement playground. Run, jump,
-long jump, and climb by kicking between walls. Version 0.3 adds dive and rollout,
-capsule collision, a smoother camera, interpolated rendering, procedural sound
-and dust, controller remapping, and safe menu-only resets. Explore a 112 x 112
-metre playground with six ramps, a 14.3 metre tower, and seven timed beacons.
+long jump, dive, roll out, and climb by kicking between walls. Version 0.4 adds
+**Skyway**: eight progressively harder sections with 46 ordered components,
+16 moving platforms, lifts, fixed rest decks and section practice. The yard is
+now **360 x 420 metres**, with eleven ramps, extra block gardens, the original
+14.3 metre tower and seven-beacon movement lab.
 
 ## Play on Windows
 
@@ -63,6 +64,26 @@ with 35 ms of grace after leaving contact. Alternate walls to climb. Beacons
 activate in order and save your respawn position. Falling resets automatically.
 The timer begins on movement; best times last for the current session.
 
+## Skyway
+
+Open **Esc / Start → Skyway / Section Practice → Start Full Skyway Course**.
+You can also walk up the wide entrance ramp east of the original lab. Practice
+any of the eight sections directly from that menu; practice times do not enter
+the session best. Return to Playground takes you back to the original lab.
+
+- Amber platforms move; mint edges mark fixed surfaces; violet decks save checkpoints.
+- Route arrows, numbered upcoming targets and dotted motion rails show the way.
+- Board a shuttle, ride it toward the destination, then jump near its endpoint.
+- Lifts and diagonal shuttles carry you; their velocity is inherited when you jump
+  or walk off. Movement and platform rendering share interpolation.
+- Each section ends on a fixed checkpoint deck. Falling below the section returns
+  you there and replays that section. Respawning keeps platform phases and the
+  timer; restarting resets both. All platforms freeze while paused.
+- The timer counts actual unpaused time from your first movement/action, including
+  retries. Full-course best times last for the session.
+
+See [COURSE.md](COURSE.md) for the route and its design intent.
+
 ## Resolution and frame rate
 
 Open **F2**, or choose **Options** in the pause menu. Select a row and use
@@ -86,7 +107,7 @@ the GPU supports multisample resolve, with a single-sample fallback.
 The cap limits rendered frames with a clock-based limiter. GPU performance and
 driver overrides may produce a lower actual FPS, shown in the HUD and Options.
 Movement always uses a **fixed 120 Hz simulation** and catches up between
-rendered frames. The character and camera blend between completed simulation
+rendered frames. Platforms, the character and camera blend between completed simulation
 states for smooth rendering when the frame and simulation rates differ. Changing the cap does not change movement constants or game
 speed at supported frame rates. Settings are saved under
 `%LOCALAPPDATA%/Rust3D/stride-options.cfg` on Windows, or the XDG configuration
@@ -133,17 +154,19 @@ procedural geometry, shaders, HUD font, camera, and game logic.
 | `src/engine/frame.rs` | Render frame pacing |
 | `src/engine/audio.rs` | Procedural sound synthesis, mixer and output |
 | `src/engine/ui.rs` | Built-in font and HUD geometry |
-| `src/world.rs` | Solids, ramp surfaces, level and beacons |
+| `src/world.rs` | Collision surfaces, platform updates, playground and beacons |
+| `src/course.rs` | Deterministic platform paths, authored Skyway route and checkpoints |
 | `src/app.rs` | Game loop, input, course logic and animated robot |
 | `src/menu.rs` / `src/settings.rs` | Options, menu navigation and saved preferences |
 
-This prototype uses a variable-height upright capsule against static blocks
-and ramp surfaces. Arbitrary mesh collision, moving platforms, and an editor
-are future work. Tests cover dive/rollout transitions and buffering, low
-clearance, corner normals, camera obstruction and manual overrides, render
-interpolation, controller bindings, saved preferences, and the existing tower
-route and wall kicks. CI renders menus and the tower at multiple resolutions
-and builds/tests on Windows. Physical controller, vibration, and Windows audio
+This prototype uses a variable-height upright capsule against blocks, ramps and
+kinematic platforms. Arbitrary mesh collision and an editor are future work.
+Tests cover platform carrying through reversals, inherited jump momentum,
+lift landings, head pinches, checkpoints, practice rules, dive/rollout,
+controller settings, camera behavior and the existing movement routes. A
+lookahead test pilot completes all 46 course components using only gameplay
+inputs, from two different starting phases. CI renders the course and menus,
+and builds/tests on Windows. Physical controller, vibration and Windows audio
 playtesting remain hardware checks.
 All game geometry and UI glyphs are generated in code.
 

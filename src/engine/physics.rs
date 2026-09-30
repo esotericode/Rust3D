@@ -35,6 +35,10 @@ pub struct Player {
     pub pos: Vec3,
     pub velocity: Vec3,
     pub grounded: bool,
+    pub ground_platform: Option<usize>,
+    pub support_velocity: Vec3,
+    pub air_carry: Vec3,
+    pub crushed: bool,
     pub facing: f32,
     pub action: &'static str,
     pub wall_normal: Vec3,
@@ -66,6 +70,10 @@ impl Default for Player {
             pos: SPAWN,
             velocity: Vec3::ZERO,
             grounded: true,
+            ground_platform: None,
+            support_velocity: Vec3::ZERO,
+            air_carry: Vec3::ZERO,
+            crushed: false,
             facing: 0.,
             action: "READY",
             wall_normal: Vec3::ZERO,
@@ -143,8 +151,7 @@ impl Player {
     }
     fn can_stand(&self, world: &World) -> bool {
         !world
-            .solids
-            .iter()
+            .collision_solids()
             .any(|s| capsule_overlaps(self.pos, HEIGHT, s.min, s.max))
             && !world.ramps.iter().any(|r| {
                 r.height(self.pos.x, self.pos.z)
@@ -152,6 +159,30 @@ impl Player {
             })
     }
     pub fn step(&mut self, input: Input, yaw: f32, world: &World, dt: f32) {
+        self.crushed = false;
+        if self.grounded {
+            if let Some(p) = self.ground_platform.and_then(|i| world.platforms.get(i)) {
+                self.pos += p.delta;
+                self.support_velocity = p.velocity;
+                if p.delta.y > 0.
+                    && world.collision_solids().any(|s| {
+                        s.min.y > self.pos.y + RADIUS
+                            && capsule_overlaps(self.pos, self.height(), s.min, s.max)
+                    })
+                {
+                    self.crushed = true;
+                    return;
+                }
+                self.move_horizontal(world, 0.);
+                // A lift must not carry a capsule through a stationary roof.
+                if !self.can_fit(world) {
+                    self.crushed = true;
+                    return;
+                }
+            } else {
+                self.support_velocity = Vec3::ZERO;
+            }
+        }
         self.coyote = if self.grounded {
             0.10
         } else {
@@ -188,6 +219,7 @@ impl Player {
                 self.motion = Move::Rollout;
                 self.motion_time = 0.;
                 self.velocity.y = 7.6;
+                self.inherit_platform();
                 let direction = Vec3::new(self.velocity.x, 0., self.velocity.z).normalize_or_zero();
                 let direction = if direction == Vec3::ZERO {
                     vec3(-self.facing.sin(), 0., -self.facing.cos())
@@ -224,6 +256,9 @@ impl Player {
             } else {
                 (self.velocity.y + 2.).clamp(-10., 4.)
             };
+            if self.grounded {
+                self.inherit_platform();
+            }
             self.facing += angle_delta(self.facing, (-direction.x).atan2(-direction.z));
             self.motion = Move::Dive;
             self.motion_time = 0.;
@@ -314,6 +349,7 @@ impl Player {
             } else {
                 self.action = "JUMP";
             }
+            self.inherit_platform();
             self.jumps += 1;
             self.grounded = false;
             self.coyote = 0.;
@@ -328,6 +364,8 @@ impl Player {
         {
             let tangent = wish - self.wall_normal * wish.dot(self.wall_normal);
             self.velocity = self.wall_normal * 11.5 + Vec3::Y * 11.5 + tangent * 3.;
+            self.air_carry = Vec3::ZERO;
+            self.ground_platform = None;
             self.last_wall = self.wall_normal;
             self.kick_lock = 0.10;
             self.jump_buffer = 0.;
@@ -363,7 +401,10 @@ impl Player {
         self.velocity.y = (self.velocity.y - gravity * dt).max(-42.);
         self.pos.y += self.velocity.y * dt;
         self.grounded = false;
-        for s in &world.solids {
+        let carried_platform = self.ground_platform;
+        self.ground_platform = None;
+        let falling_speed = self.velocity.y;
+        for (index, s) in world.collision_solids().enumerate() {
             let gap = horizontal_gap(self.pos, s.min, s.max).length_squared();
             if gap >= RADIUS * RADIUS {
                 continue;
@@ -371,9 +412,17 @@ impl Player {
             let round = (RADIUS * RADIUS - gap).sqrt();
             let top = s.max.y - RADIUS + round;
             let ceiling = s.min.y - self.height() + RADIUS - round;
-            if self.velocity.y <= 0. && before_y >= top - 0.02 && self.pos.y <= top {
+            let platform = index.checked_sub(world.solids.len());
+            let mover = platform.and_then(|i| world.platforms.get(i));
+            let riding = was_grounded && carried_platform == platform && platform.is_some();
+            let relative_y =
+                falling_speed - mover.map_or(0., |p| if riding { 0. } else { p.velocity.y });
+            let previous_top = top - mover.map_or(0., |p| if riding { 0. } else { p.delta.y });
+            if relative_y <= 0. && before_y >= previous_top - 0.02 && self.pos.y <= top {
                 self.pos.y = top;
                 self.land();
+                self.ground_platform = platform;
+                self.support_velocity = mover.map_or(Vec3::ZERO, |p| p.velocity);
             } else if self.velocity.y > 0. && before_y <= ceiling + 0.01 && self.pos.y >= ceiling {
                 self.pos.y = ceiling;
                 self.velocity.y = 0.;
@@ -386,6 +435,15 @@ impl Player {
                     self.land();
                 }
             }
+        }
+        if was_grounded && !self.grounded {
+            // Walking off inherits the same motion as jumping; coyote jumps use
+            // the retained vertical support speed without adding it twice.
+            self.air_carry = Vec3::new(self.support_velocity.x, 0., self.support_velocity.z);
+            self.velocity.y += self.support_velocity.y;
+        }
+        if self.grounded && !self.can_fit(world) {
+            self.crushed = true;
         }
         if self.touched_wall {
             self.wall_contact_age += dt;
@@ -429,6 +487,17 @@ impl Player {
         self.animation_phase += self.speed() * dt * 2.6;
     }
 
+    fn can_fit(&self, world: &World) -> bool {
+        !world
+            .collision_solids()
+            .any(|s| capsule_overlaps(self.pos, self.height(), s.min, s.max))
+    }
+    fn inherit_platform(&mut self) {
+        self.air_carry = Vec3::new(self.support_velocity.x, 0., self.support_velocity.z);
+        self.velocity.y += self.support_velocity.y;
+        self.ground_platform = None;
+        self.support_velocity = Vec3::ZERO;
+    }
     fn land(&mut self) {
         if self.velocity.y < -1. {
             self.landings += 1;
@@ -439,6 +508,9 @@ impl Player {
             self.motion_time = 0.;
         }
         self.grounded = true;
+        self.air_carry = Vec3::ZERO;
+        self.ground_platform = None;
+        self.support_velocity = Vec3::ZERO;
         self.velocity.y = 0.;
         self.long_air = false;
         self.last_wall = Vec3::ZERO;
@@ -451,18 +523,33 @@ impl Player {
         self.wall_normal = normal;
         self.wall_grace = WALL_GRACE;
         self.touched_wall = true;
+        let carry_into = self.air_carry.dot(normal);
+        if carry_into < 0. {
+            self.air_carry -= normal * carry_into;
+        }
         let into = self.velocity.dot(normal);
         if into < 0. {
             self.velocity -= normal * into;
         }
     }
     fn move_horizontal(&mut self, world: &World, dt: f32) {
-        let delta = vec3(self.velocity.x, 0., self.velocity.z) * dt;
+        let carry = if self.grounded {
+            Vec3::ZERO
+        } else {
+            self.air_carry
+        };
+        let delta = (vec3(self.velocity.x, 0., self.velocity.z) + carry) * dt;
         let steps = (delta.length() / (RADIUS * 0.5)).ceil().max(1.) as usize;
         for _ in 0..steps {
-            self.pos += vec3(self.velocity.x, 0., self.velocity.z) * (dt / steps as f32);
+            self.pos += (vec3(self.velocity.x, 0., self.velocity.z)
+                + if self.grounded {
+                    Vec3::ZERO
+                } else {
+                    self.air_carry
+                })
+                * (dt / steps as f32);
             for _ in 0..3 {
-                for s in &world.solids {
+                for s in world.collision_solids() {
                     if self.pos.y >= s.max.y - 0.001
                         || self.pos.y + self.height() <= s.min.y + 0.001
                     {
@@ -473,7 +560,7 @@ impl Player {
                     }
                     if self.grounded && s.max.y - self.pos.y <= 0.25 {
                         let raised = vec3(self.pos.x, s.max.y, self.pos.z);
-                        if !world.solids.iter().any(|other| {
+                        if !world.collision_solids().any(|other| {
                             capsule_overlaps(raised, self.height(), other.min, other.max)
                         }) {
                             self.pos.y = s.max.y;

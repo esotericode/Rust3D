@@ -1,3 +1,4 @@
+use crate::course::{Course, MovingPlatform};
 use glam::{vec3, Vec3};
 
 pub const NAVY: [f32; 3] = [0.18, 0.25, 0.31];
@@ -5,8 +6,8 @@ pub const MINT: [f32; 3] = [0.25, 0.88, 0.76];
 pub const ORANGE: [f32; 3] = [1.0, 0.48, 0.25];
 pub const CONCRETE: [f32; 3] = [0.69, 0.73, 0.71];
 pub const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 13.0);
-pub const LEVEL_SIZE: Vec3 = Vec3::new(112., 1.2, 112.);
-pub const LEVEL_CENTER: Vec3 = Vec3::new(0., -0.6, -12.);
+pub const LEVEL_SIZE: Vec3 = Vec3::new(360., 1.2, 420.);
+pub const LEVEL_CENTER: Vec3 = Vec3::new(100., -0.6, -25.);
 pub const TOWER: Vec3 = Vec3::new(-34., 0., -40.);
 
 #[derive(Clone, Debug)]
@@ -57,6 +58,9 @@ pub struct World {
     pub solids: Vec<Solid>,
     pub ramps: Vec<Ramp>,
     pub beacons: Vec<Beacon>,
+    pub platforms: Vec<MovingPlatform>,
+    pub course: Course,
+    pub time: f64,
 }
 
 impl Default for World {
@@ -129,8 +133,11 @@ impl Default for World {
         for x in [-17., -13.] {
             solids.push(Solid::new(vec3(x, 2.5, 28.), vec3(1., 5., 8.), NAVY));
         }
-        Self {
+        let mut world = Self {
             solids,
+            platforms: Vec::new(),
+            course: Course::default(),
+            time: 0.,
             ramps: vec![
                 Ramp {
                     min: vec3(-11., 0., 1.),
@@ -187,15 +194,61 @@ impl Default for World {
                     name: "RIDGE / THE FINAL RUN",
                 },
             ],
+        };
+        world.ramps.push(Ramp {
+            min: vec3(48., 0., 36.),
+            max: vec3(64., 8., 61.),
+        });
+        // Broad ramp-and-block practice gardens occupy the newly opened yard,
+        // clear of the overhead course and its fall corridors.
+        for (x, z, h) in [
+            (90., -80., 3.),
+            (130., -105., 4.),
+            (175., -70., 5.),
+            (215., -120., 6.),
+        ] {
+            world.ramps.push(Ramp {
+                min: vec3(x - 4., 0., z),
+                max: vec3(x + 4., h, z + 20.),
+            });
+            world
+                .solids
+                .push(Solid::new(vec3(x, h * 0.5, z - 4.), vec3(8., h, 8.), NAVY));
+            for j in 0..4 {
+                let height = 0.8 + j as f32 * 0.8;
+                world.solids.push(Solid::new(
+                    vec3(x + 14. + j as f32 * 5., height * 0.5, z + 7.),
+                    vec3(3.5, height, 3.5),
+                    NAVY,
+                ));
+            }
         }
+        Course::build(&mut world);
+        world
     }
 }
 
 impl World {
+    pub fn collision_solids(&self) -> impl Iterator<Item = &Solid> {
+        self.solids
+            .iter()
+            .chain(self.platforms.iter().map(|p| &p.solid))
+    }
+    pub fn advance(&mut self, dt: f32) {
+        self.time += dt as f64;
+        for p in &mut self.platforms {
+            p.advance(self.time, dt);
+        }
+    }
+    pub fn reset_platforms(&mut self) {
+        self.time = 0.;
+        for p in &mut self.platforms {
+            p.reset(0.);
+        }
+    }
     pub fn floor_height(&self, p: Vec3) -> Option<f32> {
         let blocks = self
-            .solids
-            .iter()
+            .collision_solids()
             .filter(|s| {
                 p.x >= s.min.x
                     && p.x <= s.max.x

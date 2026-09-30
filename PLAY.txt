@@ -55,11 +55,31 @@ THE PLAYGROUND
 Ramp to beacon 1, jump blocks to beacon 2, long jump to beacon 3, alternating
 wall kicks to beacon 4, tunnel to beacon 5, thirteen spiral tower ledges to
 beacon 6, and the broad ridge to beacon 7. Explore freely between timed runs.
-The 112 x 112 m courtyard has six ramps, extra blocks, wall pairs and open space.
+The 360 x 420 m courtyard has eleven ramps, extra blocks, wall pairs and open space.
 Beacons activate in order and save your respawn position. The run timer starts
 when you move. Best times last for the current session.
 Tap/hold jump changes height. Wall kicks require a fresh press in the first
 120 ms of contact, with 35 ms departure grace. Alternate walls to climb.
+
+SKYWAY / THE MOVING PLATFORM COURSE
+Esc / Start > Skyway / Section Practice > Start Full Skyway Course.
+Or walk up the broad entrance ramp to the east of the movement lab.
+46 ordered components, 16 moving platforms, eight sections, a 44 m summit.
+Amber moves; mint edges are fixed; violet decks save a checkpoint.
+Follow the numbered targets and surface arrows. Dotted rails show motion paths.
+Platforms pause briefly at both ends. Ride before jumping; lifts and shuttles
+transfer their momentum into jumps. On narrower pads, slow down and aim centrally.
+The early sections teach boarding, timing and lift exits. Later sections combine
+diagonal rides, direct pad transfers, a long jump, low dive arch and summit climb.
+See COURSE.md for section descriptions and technique hints.
+
+Each section ends on a fixed checkpoint deck. A fall returns you there and you
+replay that section. The retry count and timer continue. Respawn preserves motion
+phases; Restart Course resets phases and the run, after confirmation.
+Pause freezes platforms and the timer. Time counts real unpaused seconds, starting
+with movement, jump or dive. Full-course best times last for this session.
+Practice any section from the course menu; practice ends at its next checkpoint
+and never enters the full-course best. Return to Playground is also a menu option.
 
 OPTIONS
 F2, or Options in the pause menu. Apply and Save commits your draft changes.
@@ -85,8 +105,8 @@ sounds. Supported controllers can vibrate briefly on movement events.
 Sound/vibration availability depends on your output device and controller.
 If no audio device is available, the game continues silently.
 
-This prototype uses a variable-height upright capsule and static blocks/ramps.
-Arbitrary meshes, moving platforms, an editor and music are future work.
+This prototype uses a variable-height capsule, blocks, ramps and moving platforms.
+Arbitrary meshes, an editor and music are future work.
 The robot, level, shaders, font and movement effects are generated in code.
 
 TROUBLESHOOTING

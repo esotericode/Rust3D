@@ -14,6 +14,9 @@ fn floor() -> World {
         solids: vec![Solid::new(vec3(0., -0.5, 0.), vec3(100., 1., 100.), NAVY)],
         ramps: vec![],
         beacons: vec![],
+        platforms: vec![],
+        course: Default::default(),
+        time: 0.,
     }
 }
 fn player(pos: Vec3) -> Player {
