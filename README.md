@@ -64,6 +64,25 @@ with 35 ms of grace after leaving contact. Alternate walls to climb. Beacons
 activate in order and save your respawn position. Falling resets automatically.
 The timer begins on movement; best times last for the current session.
 
+## Graphics in 0.5
+
+The renderer now uses per-pixel sun lighting, roughness-dependent highlights,
+2048-pixel soft directional shadow maps, cool sky fill and a warm sun. Blocks,
+platform bodies and the robot have tessellated rounded bevels with smooth
+normals. Concrete, courtyard pavers, painted metal and rubber have distinct
+responses to light. An embedded seamless texture supplies albedo variation,
+small normal-map surface relief and roughness variation; mipmaps filter it at
+a distance. Material coordinates travel with animated objects. The sky has a
+horizon gradient and a sun disc, and distance fog is evaluated per pixel.
+
+The pass changes rendered geometry and shading. Gameplay collision retains the
+authored block/ramp dimensions, and course markers keep their clear colors.
+Fine surface relief uses shading rather than GPU tessellation or displaced
+collision. Shadows cover a 104 m square around the character and fade at its
+edge; distant structures still receive sunlight and sky fill. This is direct
+lighting with approximate sky fill, rather than full global illumination.
+The executable generates its materials at startup and needs no texture files.
+
 ## Skyway
 
 Open **Esc / Start → Skyway / Section Practice → Start Full Skyway Course**.
@@ -147,7 +166,8 @@ procedural geometry, shaders, HUD font, camera, and game logic.
 | File | Responsibility |
 | --- | --- |
 | `src/engine/physics.rs` | Acceleration, air control, jump buffering, coyote time, wall kicks and collision |
-| `src/engine/renderer.rs` | GPU pipeline, buffers, lighting/grid/fog shaders and capture |
+| `src/engine/renderer.rs` | World, shadow, sky and UI passes, textures, buffers and capture |
+| `src/engine/lighting.rs` / `src/engine/shaders/` | Stable sun shadows, procedural material texture and lighting shaders |
 | `src/engine/mesh.rs` | Procedural geometry |
 | `src/engine/camera.rs` | Third-person follow/orbit and obstruction checks |
 | `src/engine/controller.rs` | Gamepad hotplugging, remapping, radial deadzones and vibration |

@@ -34,7 +34,9 @@ jobs:
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-overview --screenshot skyway.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-view 4 --screenshot clockwork.ppm
           xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --course-menu --screenshot course-menu.ppm
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 target/debug/stride --smoke-test --materials-view --test-resolution 1920x1080 --screenshot materials.ppm
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: stride-render-smoke-test
           path: '*.ppm'

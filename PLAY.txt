@@ -109,6 +109,16 @@ This prototype uses a variable-height capsule, blocks, ramps and moving platform
 Arbitrary meshes, an editor and music are future work.
 The robot, level, shaders, font and movement effects are generated in code.
 
+GRAPHICS / VERSION 0.5
+Rounded block and robot edges, textured concrete and painted metal, roughness
+highlights, per-pixel lighting, soft sun shadows and a gradient sky.
+The seamless surface texture is embedded and generated at startup; no assets
+need installation. Texture filtering reduces distant shimmer. Moving platforms
+carry their texture with them. Course marker colors stay clearly visible.
+Shadows follow the character and fade outside their local coverage area.
+Bevels and surface relief affect rendering; gameplay dimensions stay the same.
+If the higher graphics cost lowers FPS, choose a lower render resolution in F2.
+
 TROUBLESHOOTING
 If startup fails, update your GPU driver and look for stride-error.log
 beside Stride.exe. The executable is unsigned.

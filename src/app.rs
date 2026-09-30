@@ -104,7 +104,7 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "STRIDE 0.4 / SKYWAY IN THE PAUSE MENU".into(),
+            toast_text: "STRIDE 0.5 / NEW LIGHTING AND MATERIALS".into(),
             best: None,
             course_run: None,
             course_best: None,
@@ -120,6 +120,13 @@ impl Game {
                 .unwrap_or(10)
                 .clamp(10, 3600),
         };
+        if args.iter().any(|s| s == "--materials-view") {
+            game.camera.distance = 5.5;
+            game.camera.yaw = -0.6;
+            game.camera.pitch = 0.30;
+            game.camera.update(game.player.pos, &game.world, 1.);
+            game.toast = 0.;
+        }
         if args.iter().any(|s| s == "--tower-view") {
             game.player.respawn(TOWER + vec3(9., 0.1, 28.));
             game.camera = Camera::new(game.player.pos);
@@ -584,7 +591,7 @@ impl Game {
         ui.text(
             44.,
             110.,
-            &format!("FPS {:.0} / SIM 120 HZ / V0.4", self.fps),
+            &format!("FPS {:.0} / SIM 120 HZ / V0.5", self.fps),
             1.,
             MINT,
         );
@@ -850,8 +857,7 @@ impl EventHandler for Game {
         }
         let player = self.player.interpolated(&self.previous_player, alpha);
         let matrix = camera.matrix(rw as f32 / rh as f32);
-        self.renderer.begin();
-        self.renderer.static_mesh(&self.scenery, matrix, camera.eye);
+
         let dynamic = build_dynamic(
             &self.world,
             &player,
@@ -861,6 +867,9 @@ impl EventHandler for Game {
             alpha,
             self.course_run.as_ref(),
         );
+        self.renderer.shadows(&self.scenery, &dynamic, player.pos);
+        self.renderer.begin(matrix, camera.eye);
+        self.renderer.static_mesh(&self.scenery, matrix, camera.eye);
         self.renderer.dynamic(&dynamic, matrix, camera.eye, false);
         let hud = self.hud(matrix);
         self.renderer.dynamic(
@@ -1005,17 +1014,28 @@ fn build_scene(world: &World) -> Mesh {
             (s.min + s.max) * 0.5,
             s.max - s.min,
             s.color,
-            if i == 0 { 1. } else { 0. },
+            if i == 0 {
+                1.
+            } else if world
+                .course
+                .nodes
+                .iter()
+                .any(|n| n.surface == Surface::Fixed(i))
+            {
+                3.
+            } else {
+                0.
+            },
         );
         if i > 0 && s.max.x - s.min.x > 2. {
             // Pale caps and a thin mint edge identify walkable surfaces.
             m.cube(
                 vec3(
                     (s.min.x + s.max.x) * 0.5,
-                    s.max.y + 0.025,
+                    s.max.y + 0.012,
                     (s.min.z + s.max.z) * 0.5,
                 ),
-                vec3(s.max.x - s.min.x, 0.05, s.max.z - s.min.z),
+                vec3(s.max.x - s.min.x - 0.24, 0.024, s.max.z - s.min.z - 0.24),
                 [0.61, 0.69, 0.69],
                 0.,
             );
@@ -1161,9 +1181,14 @@ fn build_dynamic(
     let (dust, squash) = feedback;
     for platform in &world.platforms {
         let center = platform.rendered_center(alpha);
-        m.cube(center, platform.size, [0.36, 0.29, 0.20], 0.);
+        m.cube(center, platform.size, [0.36, 0.29, 0.20], 3.);
         let top = center + Vec3::Y * (platform.size.y * 0.5 + 0.025);
-        m.cube(top, vec3(platform.size.x, 0.05, platform.size.z), AMBER, 0.);
+        m.cube(
+            top,
+            vec3(platform.size.x - 0.20, 0.04, platform.size.z - 0.20),
+            AMBER,
+            3.,
+        );
         for x in [-1., 1.] {
             m.cube(
                 top + vec3(x * (platform.size.x * 0.5 - 0.15), 0.045, 0.),
@@ -1207,8 +1232,7 @@ fn build_dynamic(
     }
     if let Some(y) = world.floor_height(p.pos) {
         let height = (p.pos.y - y).max(0.);
-        let size = 0.5 + height.min(10.) * 0.025;
-        m.disc(vec3(p.pos.x, y + 0.012, p.pos.z), size, [0.30, 0.39, 0.41]);
+
         if height > 0.3 {
             m.ring(vec3(p.pos.x, y + 0.025, p.pos.z), 0.36, 0.035, MINT);
         }
@@ -1219,16 +1243,16 @@ fn build_dynamic(
         vec3(0., 1.03, 0.),
         vec3(0.52, 0.64, 0.36),
         [0.9, 0.92, 0.83],
-        0.,
+        3.,
     );
-    m.cube(vec3(0., 1.03, 0.25), vec3(0.38, 0.48, 0.18), ORANGE, 0.);
+    m.cube(vec3(0., 1.03, 0.25), vec3(0.38, 0.48, 0.18), ORANGE, 3.);
     m.cube(
         vec3(0., 1.49, 0.),
         vec3(0.58, 0.38, 0.47),
         [0.94, 0.96, 0.91],
-        0.,
+        3.,
     );
-    m.cube(vec3(0., 1.50, -0.245), vec3(0.46, 0.19, 0.03), NAVY, 0.);
+    m.cube(vec3(0., 1.50, -0.245), vec3(0.46, 0.19, 0.03), NAVY, 4.);
     m.cube(
         vec3(-0.10, 1.50, -0.265),
         vec3(0.12, 0.045, 0.015),
@@ -1236,7 +1260,7 @@ fn build_dynamic(
         2.,
     );
     m.cube(vec3(0.10, 1.50, -0.265), vec3(0.12, 0.045, 0.015), MINT, 2.);
-    m.cube(vec3(0., 0.72, 0.), vec3(0.48, 0.12, 0.38), NAVY, 0.);
+    m.cube(vec3(0., 0.72, 0.), vec3(0.48, 0.12, 0.38), NAVY, 4.);
     let swing = if p.grounded {
         p.animation_phase.sin() * (p.speed() / 9.).min(1.) * 0.7
     } else {
@@ -1244,7 +1268,7 @@ fn build_dynamic(
     };
     for side in [-1., 1.] {
         let leg = m.vertices.len();
-        m.cube(vec3(0., -0.23, 0.), vec3(0.19, 0.46, 0.20), NAVY, 0.);
+        m.cube(vec3(0., -0.23, 0.), vec3(0.19, 0.46, 0.20), NAVY, 4.);
         m.cube(vec3(0., -0.50, -0.07), vec3(0.23, 0.15, 0.35), MINT, 0.);
         m.transform_from(
             leg,
@@ -1252,8 +1276,8 @@ fn build_dynamic(
                 * Mat4::from_rotation_x(swing * side),
         );
         let arm = m.vertices.len();
-        m.cube(vec3(0., -0.2, 0.), vec3(0.16, 0.44, 0.18), CONCRETE, 0.);
-        m.cube(vec3(0., -0.45, 0.), vec3(0.17, 0.13, 0.20), ORANGE, 0.);
+        m.cube(vec3(0., -0.2, 0.), vec3(0.16, 0.44, 0.18), CONCRETE, 3.);
+        m.cube(vec3(0., -0.45, 0.), vec3(0.17, 0.13, 0.20), ORANGE, 3.);
         m.transform_from(
             arm,
             Mat4::from_translation(vec3(side * 0.37, 1.22, 0.))
@@ -1334,4 +1358,30 @@ fn arrow(m: &mut Mesh, p: Vec3, direction: Vec3, color: [f32; 3]) {
         color,
         2.,
     );
+}
+
+#[cfg(test)]
+mod graphics_budget_tests {
+    use super::*;
+    #[test]
+    fn authored_scene_and_animated_course_fit_gpu_index_budget() {
+        let world = World::default();
+        let scene = build_scene(&world);
+        assert!(
+            scene.vertices.len() < 60000,
+            "{} static vertices",
+            scene.vertices.len()
+        );
+        assert!(scene
+            .indices
+            .iter()
+            .all(|&i| (i as usize) < scene.vertices.len()));
+        let player = Player::default();
+        let dynamic = build_dynamic(&world, &player, 0., 0, (&[], 0.), 0.5, None);
+        assert!(dynamic.vertices.len() < 60000 && dynamic.indices.len() < 120000);
+        assert!(dynamic
+            .indices
+            .iter()
+            .all(|&i| (i as usize) < dynamic.vertices.len()));
+    }
 }
