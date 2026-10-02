@@ -626,6 +626,10 @@ impl Player {
         if self.motion == Move::Dive {
             self.motion = Move::Slide;
             self.motion_time = 0.;
+        } else if self.motion == Move::Rollout {
+            // A rollout that meets raised ground ends there. Staying in the
+            // airborne state would block jumps and let buffered presses expire.
+            self.motion = Move::Normal;
         }
         self.grounded = true;
         self.ground_normal = Vec3::Y;

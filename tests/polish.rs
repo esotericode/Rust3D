@@ -118,6 +118,57 @@ fn jump_just_before_dive_landing_buffers_rollout() {
     assert!(p.velocity.y > 0.);
 }
 #[test]
+fn rollout_that_lands_on_a_ledge_can_jump_immediately() {
+    let mut w = floor();
+    w.solids
+        .push(Solid::new(vec3(0., 0.4, -6.), vec3(20., 0.8, 8.), NAVY));
+    let mut p = player(vec3(0., 0., 2.));
+    p.motion = Move::Slide;
+    p.velocity = vec3(0., 0., -10.);
+    p.step(
+        Input {
+            jump: true,
+            ..Default::default()
+        },
+        0.,
+        &w,
+        FIXED_DT,
+    );
+    assert_eq!(p.motion, Move::Rollout);
+    for _ in 0..80 {
+        p.step(
+            Input {
+                movement: Vec2::Y,
+                ..Default::default()
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
+        if p.grounded {
+            break;
+        }
+    }
+    assert!(p.grounded && p.pos.y > 0.79, "{p:?}");
+    assert_eq!(
+        p.motion,
+        Move::Normal,
+        "early landing should end the rollout"
+    );
+    p.step(
+        Input {
+            jump: true,
+            jump_held: true,
+            movement: Vec2::Y,
+            ..Default::default()
+        },
+        0.,
+        &w,
+        FIXED_DT,
+    );
+    assert!(p.velocity.y > 9. && p.jumps == 1, "{p:?}");
+}
+#[test]
 fn slide_recovers_without_input_and_dive_can_be_used_again() {
     let w = floor();
     let mut p = player(Vec3::ZERO);
