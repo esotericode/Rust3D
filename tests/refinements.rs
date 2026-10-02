@@ -66,6 +66,47 @@ fn analog_input_walks_and_zero_input_stops_quickly() {
     assert!(p.speed() < 0.001 && p.pos.distance(before) < 0.3);
 }
 #[test]
+fn earned_speed_responds_smoothly_to_stick_strength_and_angle() {
+    let w = floor();
+    let after = |movement: Vec2, airborne: bool| {
+        let mut p = player(vec3(0., if airborne { 20. } else { 0. }, 0.));
+        p.grounded = !airborne;
+        p.velocity = vec3(0., 0., -25.);
+        step(&mut p, &w, input(movement.x, movement.y), 30);
+        p.speed()
+    };
+    for airborne in [false, true] {
+        let mut previous = after(Vec2::Y * 0.5, airborne);
+        assert!(previous < 17., "light input should still brake: {previous}");
+        for i in 1..=25 {
+            let speed = after(Vec2::Y * (0.5 + i as f32 * 0.02), airborne);
+            assert!(
+                speed >= previous - 0.01 && speed - previous < 2.5,
+                "stick cliff near {:.2}: {previous} -> {speed}",
+                0.5 + i as f32 * 0.02
+            );
+            previous = speed;
+        }
+        assert!(
+            previous > 24.5,
+            "full input should keep momentum: {previous}"
+        );
+    }
+    let mut previous = after(
+        Vec2::new(70_f32.to_radians().sin(), 70_f32.to_radians().cos()),
+        false,
+    );
+    for degrees in (72..=110).step_by(2) {
+        let a = (degrees as f32).to_radians();
+        let speed = after(Vec2::new(a.sin(), a.cos()), false);
+        assert!(
+            speed <= previous + 0.01 && previous - speed < 2.5,
+            "turn cliff near {degrees} degrees: {previous} -> {speed}"
+        );
+        previous = speed;
+    }
+}
+#[test]
 fn reversal_and_visual_turn_are_responsive_but_continuous() {
     let w = floor();
     let mut p = player(Vec3::ZERO);

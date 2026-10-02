@@ -331,6 +331,10 @@ impl Player {
             WALK_SPEED
         };
         let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+        // How firmly the stick holds earned speed. Light input deliberately
+        // brakes for precise landings and full input keeps momentum; partial
+        // input blends between them rather than switching at a threshold.
+        let hold = smoothstep(0.55, 0.9, strength);
         let accel = if self.grounded && self.ground_normal.y < WALKABLE_NORMAL_Y {
             if strength < 0.001 {
                 1.5
@@ -347,8 +351,9 @@ impl Player {
             } else {
                 70.
             }
-        } else if strength > 0.001 && strength <= 0.65 {
-            36.
+        } else if strength > 0.001 {
+            let full = if self.long_air { 10. } else { 24. };
+            36. + (full - 36.) * hold
         } else if self.long_air {
             10.
         } else {
@@ -362,26 +367,32 @@ impl Player {
                 wish * max_speed * strength
             };
             let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
-            let preserve = horizontal.length() > max_speed * strength + 0.1
-                && strength > 0.65
-                && horizontal.normalize_or_zero().dot(wish) > 0.05;
-            let target = if preserve && !special {
-                // Steer the velocity rather than replacing earned speed with a
-                // walking target. Faster travel needs a wider turning radius.
-                steer(horizontal, wish, if self.grounded { 4.5 } else { 2.2 }, dt)
+            // Speed above the input's own target is kept in proportion to how
+            // firmly, and how nearly along the motion, the stick is held.
+            let keep = if !special && horizontal.length() > max_speed * strength + 0.1 {
+                hold * smoothstep(-0.2, 0.15, horizontal.normalize_or_zero().dot(wish))
             } else {
-                target
+                0.
             };
-            let delta = if wish == Vec3::ZERO && !self.grounded {
+            let change = if wish == Vec3::ZERO && !self.grounded {
                 Vec3::ZERO
             } else {
-                target - horizontal
+                let braking = (target - horizontal).clamp_length_max(accel * dt);
+                if keep > 0. {
+                    // Steer the velocity rather than replacing earned speed with a
+                    // walking target. Faster travel needs a wider turning radius.
+                    let rate = if self.grounded { 4.5 } else { 2.2 };
+                    let steering = (steer(horizontal, wish, rate, dt) - horizontal)
+                        .clamp_length_max(accel * dt);
+                    steering * keep + braking * (1. - keep)
+                } else {
+                    braking
+                }
             };
-            let change = delta.clamp_length_max(accel * dt);
             self.velocity.x += change.x;
             self.velocity.z += change.z;
-            if preserve && self.grounded && self.landing_grace <= 0. {
-                self.drag((0.15 + 0.0001 * self.speed().powi(2)) * dt);
+            if keep > 0. && self.grounded && self.landing_grace <= 0. {
+                self.drag((0.15 + 0.0001 * self.speed().powi(2)) * dt * keep);
             }
             if strength > 0.001 && horizontal.dot(wish) < -0.1 {
                 self.chain = 0;
@@ -798,6 +809,10 @@ impl Player {
         self.pos += normal * (penetration + 0.00001);
         self.contact(normal);
     }
+}
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
 }
 fn steer(horizontal: Vec3, wish: Vec3, rate: f32, dt: f32) -> Vec3 {
     let speed = horizontal.length();
