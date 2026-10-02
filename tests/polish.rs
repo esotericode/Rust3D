@@ -1,7 +1,7 @@
 use glam::{vec3, Vec2, Vec3};
 use stride::{
     engine::{
-        camera::Camera,
+        camera::{Camera, MAX_VERTICAL_LAG},
         controller::map_buttons,
         physics::{Input, Move, Player, HEIGHT},
         FIXED_DT,
@@ -269,6 +269,28 @@ fn camera_retracts_immediately_and_recovers_smoothly() {
         camera.update(Vec3::ZERO, &w, FIXED_DT);
     }
     assert!(camera.eye.distance(camera.target) > 9.9);
+}
+#[test]
+fn camera_keeps_a_fast_falling_player_in_frame() {
+    let w = World {
+        terrain: None,
+        solids: vec![],
+        ramps: vec![],
+        beacons: vec![],
+        platforms: vec![],
+        course: Default::default(),
+        time: 0.,
+    };
+    let mut p = player(vec3(0., 200., 0.));
+    p.grounded = false;
+    let mut camera = Camera::new(p.pos);
+    for _ in 0..240 {
+        p.step(Input::default(), 0., &w, FIXED_DT);
+        camera.follow(&p, false, &w, FIXED_DT);
+        let lag = camera.target.y - (p.pos.y + 1.1);
+        assert!(lag <= MAX_VERTICAL_LAG + 0.001, "camera trails by {lag} m");
+    }
+    assert!(p.velocity.y < -60., "{p:?}");
 }
 #[test]
 fn auto_camera_respects_manual_input_and_vertical_climbing_remains_finite() {

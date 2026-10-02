@@ -1,6 +1,9 @@
 use crate::world::World;
 use glam::{vec3, Mat4, Vec3};
 
+/// Furthest the smoothed look target may trail the player vertically.
+pub const MAX_VERTICAL_LAG: f32 = 2.5;
+
 #[derive(Clone)]
 pub struct Camera {
     pub yaw: f32,
@@ -87,6 +90,12 @@ impl Camera {
         self.target.x += (goal.x - self.target.x) * horizontal;
         self.target.z += (goal.z - self.target.z) * horizontal;
         self.target.y += (goal.y - self.target.y) * vertical;
+        // Smoothing alone trails a terminal-velocity fall by about 10 m, which
+        // drops the player out of frame. Keep the lag within a fixed band.
+        self.target.y = self
+            .target
+            .y
+            .clamp(goal.y - MAX_VERTICAL_LAG, goal.y + MAX_VERTICAL_LAG);
         if world.solids.iter().any(|s| s.contains(self.target, 0.27)) {
             self.target = goal;
         }
