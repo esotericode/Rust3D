@@ -8,9 +8,10 @@ Windows 10/11, 64-bit, with an OpenGL-capable graphics driver.
 
 KEYBOARD / MOUSE
 WASD or arrow keys     Move relative to the camera
-Left or right Shift   Sprint
+Left or right Shift   Sprint (jumps keep full height and speed)
 Space                 Tap hop / hold high jump / wall kick / rollout
-Shift + Space         Long jump while moving at speed
+Ctrl                  Crouch
+Ctrl + Space          Long jump while moving
 F                     Dive; press again during the slide to roll out
 C                     Recenter camera
 Q / E                 Orbit camera
@@ -27,7 +28,8 @@ Left stick            Analog walk/run; default 10 percent radial deadzone
 Right stick           Orbit camera; default 10 percent radial deadzone
 A / Cross             Jump / wall kick / rollout
 X / Square            Dive; press again during the slide to roll out
-RT / R2               Sprint; add Jump for a long jump
+RT / R2               Sprint
+LT / L2               Crouch; add Jump while moving for a long jump
 Y / Triangle          Recenter camera
 Start / Menu          Pause / resume
 Select / View         Controls
@@ -62,13 +64,16 @@ Block Fields provides varied blocks and ramps. See LANDSCAPE.md for the regions.
 Travel resets free-run stats and sets your respawn point. Respawn in Pause returns
 there. Return to Playground and Restart Course outside Skyway return to the lab.
 
-Run with Sprint, long jump, dive in flight, then press Jump on the landing slide
+Run with Sprint, long jump (Ctrl/LT + Jump), dive in flight, then press Jump on the landing slide
 to roll out. Repeat to build speed. Each move adds less speed as you get faster,
 but there is no hard horizontal speed cap. Watch SPEED, PEAK and CHAIN onscreen.
 Downhill gravity adds speed; uphill spends it. Steep faces slide. Uphill jumps
-keep upward slope momentum. Hold Sprint to extend a downhill slide.
+keep upward slope momentum. Hold Sprint to extend a downhill slide and steer
+it in gentle arcs. Faces too steep to stand on slide; jumps spring away from
+them. Fast enough over a crest, you fly off it on a natural arc.
 Strong forward input preserves earned speed; no input in the air coasts.
-Use lighter stick or opposite input to brake. Fast turns need wider arcs.
+Use lighter stick or opposite input to brake; braking blends smoothly with how
+far the stick is pushed. Fast turns need wider arcs.
 See MOVEMENT.md for the rules, primary design references and tuning notes.
 
 THE PLAYGROUND
@@ -78,8 +83,9 @@ beacon 6, and the broad ridge to beacon 7. Explore freely between timed runs.
 The 360 x 420 m courtyard has eleven ramps, extra blocks, wall pairs and open space.
 Beacons activate in order and save your respawn position. The run timer starts
 when you move. Best times last for the current session.
-Tap/hold jump changes height. Wall kicks require a fresh press in the first
-120 ms of contact, with 35 ms departure grace. Alternate walls to climb.
+Tap/hold jump changes height. Hold toward a wall in the air to slide down it,
+then press Jump at any point to kick off. Alternate walls to climb. Standing
+past a ledge with only your heel on it slips off unless you move back onto it.
 
 SKYWAY / THE MOVING PLATFORM COURSE
 Esc / Start > Skyway / Section Practice > Start Full Skyway Course.
@@ -113,8 +119,8 @@ Movement stays at 120 Hz. Rendering blends character/camera states between
 physics updates; changing the cap does not change the movement constants.
 Camera Settings: sensitivity, invert vertical look, automatic alignment.
 Automatic alignment is off by default and pauses during manual camera input.
-Controller Settings: separate stick deadzones (0-30%), jump/dive/sprint/recenter
-bindings, vibration. Assigning an occupied button swaps the two actions.
+Controller Settings: separate stick deadzones (0-30%), jump/dive/sprint/recenter/
+crouch bindings, vibration. Assigning an occupied button swaps the two actions.
 Sound Settings: synthesized movement effects volume (0 mutes).
 Preferences: %LOCALAPPDATA%\Rust3D\stride-options.cfg.
 Existing 0.2 preferences remain compatible.

@@ -3,7 +3,7 @@ use stride::{
     engine::{
         camera::{Camera, MAX_VERTICAL_LAG},
         controller::map_buttons,
-        physics::{Input, Move, Player, HEIGHT},
+        physics::{Input, Move, Player, HEIGHT, RADIUS},
         FIXED_DT,
     },
     settings::Settings,
@@ -93,6 +93,56 @@ fn repeated_dive_presses_do_not_add_midair_boosts() {
     assert_eq!(p.dives, 1);
     assert_eq!(p.motion, Move::Dive);
     assert!(p.velocity.y < 0.);
+}
+#[test]
+fn diving_during_a_fast_fall_does_not_brake_it() {
+    let w = floor();
+    let mut p = player(vec3(0., 30., 0.));
+    p.grounded = false;
+    p.velocity = vec3(0., -30., -8.);
+    dive(&mut p, &w);
+    assert_eq!(p.motion, Move::Dive);
+    assert!(p.velocity.y < -27., "{p:?}");
+    // Early in a jump a dive still trades height for a small, capped lift.
+    let mut q = player(vec3(0., 3., 0.));
+    q.grounded = false;
+    q.velocity = vec3(0., 9., -8.);
+    dive(&mut q, &w);
+    assert!(q.velocity.y > 3. && q.velocity.y <= 4.01, "{q:?}");
+}
+#[test]
+fn resting_past_a_ledge_slips_off_but_moving_onto_it_holds() {
+    let mut w = floor();
+    w.solids
+        .push(Solid::new(vec3(0., 1., 0.), vec3(4., 2., 4.), NAVY));
+    let rim = |gap: f32| 2. - RADIUS + (RADIUS * RADIUS - gap * gap).sqrt();
+    let mut slip = player(vec3(2.25, rim(0.25), 0.));
+    for _ in 0..30 {
+        slip.step(Input::default(), 0., &w, FIXED_DT);
+    }
+    assert!(slip.pos.y < 1.5 && slip.pos.x > 2., "{slip:?}");
+    let mut perch = player(vec3(2.08, rim(0.08), 0.));
+    for _ in 0..30 {
+        perch.step(Input::default(), 0., &w, FIXED_DT);
+    }
+    assert!(perch.grounded && perch.pos.y > 1.97, "{perch:?}");
+    let mut back = player(vec3(2.25, rim(0.25), 0.));
+    for _ in 0..30 {
+        back.step(
+            Input {
+                movement: Vec2::NEG_X,
+                ..Default::default()
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
+        assert!(back.pos.y > 1.8, "{back:?}");
+    }
+    assert!(
+        back.grounded && (back.pos.y - 2.).abs() < 0.001 && back.pos.x < 2.,
+        "{back:?}"
+    );
 }
 #[test]
 fn jump_just_before_dive_landing_buffers_rollout() {
@@ -391,7 +441,7 @@ fn preferences_migrate_old_deadzones_and_reject_duplicate_bindings() {
         camera_sensitivity: 175,
         invert_y: true,
         auto_camera: true,
-        bindings: [2, 0, 5, 3],
+        bindings: [2, 0, 5, 3, 6],
         vibration: false,
         volume: 30,
         ..Default::default()
@@ -411,4 +461,20 @@ fn vsync_defaults_on_and_round_trips() {
     };
     assert_eq!(Settings::decode(&off.encode()), off);
     assert!(Settings::decode("vsync=oops\n").vsync);
+}
+#[test]
+fn older_binding_files_gain_a_crouch_button() {
+    let defaults = Settings::default();
+    assert_eq!(
+        Settings::decode("bindings=2,0,5,3\n").bindings,
+        [2, 0, 5, 3, 6]
+    );
+    assert_eq!(
+        Settings::decode("bindings=6,0,5,3\n").bindings,
+        [6, 0, 5, 3, 1]
+    );
+    let mut buttons = [false; 10];
+    buttons[6] = true;
+    let state = map_buttons(buttons, buttons, &defaults);
+    assert!(state.crouch && !state.jump && !state.dive);
 }

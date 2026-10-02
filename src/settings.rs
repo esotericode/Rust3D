@@ -27,7 +27,13 @@ pub const BUTTON_NAMES: [&str; 8] = [
     "LT / L2",
     "RT / R2",
 ];
-pub const BINDING_NAMES: [&str; 4] = ["JUMP", "DIVE / ROLLOUT", "SPRINT", "RECENTER"];
+pub const BINDING_NAMES: [&str; 5] = [
+    "JUMP",
+    "DIVE / ROLLOUT",
+    "SPRINT",
+    "RECENTER",
+    "CROUCH / LONG JUMP",
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
@@ -39,7 +45,7 @@ pub struct Settings {
     pub camera_sensitivity: u32,
     pub invert_y: bool,
     pub auto_camera: bool,
-    pub bindings: [usize; 4],
+    pub bindings: [usize; 5],
     pub vibration: bool,
     pub volume: u32,
     /// Applied when the window opens, so a change takes effect on restart.
@@ -58,7 +64,7 @@ impl Default for Settings {
             camera_sensitivity: 100,
             invert_y: false,
             auto_camera: false,
-            bindings: [0, 2, 7, 3],
+            bindings: [0, 2, 7, 3, 6],
             vibration: true,
             volume: 60,
             vsync: true,
@@ -88,9 +94,9 @@ impl Settings {
         self.bindings[action] = button;
     }
     pub fn encode(&self) -> String {
-        format!("resolution={}\nframe_cap={}\nfullscreen={}\ndeadzone={}\nlook_deadzone={}\ncamera_sensitivity={}\ninvert_y={}\nauto_camera={}\nbindings={},{},{},{}\nvibration={}\nvolume={}\nvsync={}\n",
+        format!("resolution={}\nframe_cap={}\nfullscreen={}\ndeadzone={}\nlook_deadzone={}\ncamera_sensitivity={}\ninvert_y={}\nauto_camera={}\nbindings={},{},{},{},{}\nvibration={}\nvolume={}\nvsync={}\n",
             self.resolution,self.frame_cap,self.fullscreen,self.deadzone_percent,self.look_deadzone_percent,
-            self.camera_sensitivity,self.invert_y,self.auto_camera,self.bindings[0],self.bindings[1],self.bindings[2],self.bindings[3],self.vibration,self.volume,self.vsync)
+            self.camera_sensitivity,self.invert_y,self.auto_camera,self.bindings[0],self.bindings[1],self.bindings[2],self.bindings[3],self.bindings[4],self.vibration,self.volume,self.vsync)
     }
     pub fn decode(text: &str) -> Self {
         let mut s = Self::default();
@@ -159,11 +165,19 @@ impl Settings {
                     }
                 }
                 "bindings" => {
-                    let values: Vec<usize> =
+                    let mut values: Vec<usize> =
                         value.split(',').filter_map(|v| v.parse().ok()).collect();
-                    if values.len() == 4
+                    // Files from before the crouch binding list four actions;
+                    // crouch takes LT when free, otherwise the first free button.
+                    if values.len() == 4 {
+                        let free = std::iter::once(6)
+                            .chain(0..BUTTON_NAMES.len())
+                            .find(|b| !values.contains(b));
+                        values.extend(free);
+                    }
+                    if values.len() == s.bindings.len()
                         && values.iter().all(|v| *v < BUTTON_NAMES.len())
-                        && (0..4).all(|i| !values[..i].contains(&values[i]))
+                        && (0..values.len()).all(|i| !values[..i].contains(&values[i]))
                     {
                         s.bindings.copy_from_slice(&values);
                     }

@@ -46,6 +46,7 @@ fn forward() -> Input {
     Input {
         movement: Vec2::Y,
         sprint: true,
+        crouch: true,
         jump_held: true,
         ..Default::default()
     }
@@ -237,7 +238,11 @@ fn steep_faces_slide_even_with_uphill_input_and_can_be_jumped_off() {
 fn uphill_jumps_dives_and_rollouts_keep_the_slopes_upward_momentum() {
     let w = slope(0.6);
     for motion in [Move::Normal, Move::Slide] {
-        for dive in [false, true] {
+        for (jump, crouch, dive) in [
+            (true, false, false),
+            (true, true, false),
+            (false, false, true),
+        ] {
             let mut p = at(vec3(0., 100., 0.));
             p.velocity = vec3(60., 36., 0.);
             p.motion = motion;
@@ -245,7 +250,8 @@ fn uphill_jumps_dives_and_rollouts_keep_the_slopes_upward_momentum() {
                 Input {
                     movement: Vec2::X,
                     sprint: true,
-                    jump: !dive,
+                    crouch,
+                    jump,
                     jump_held: true,
                     dive,
                 },
@@ -285,6 +291,102 @@ fn uphill_jumps_dives_and_rollouts_keep_the_slopes_upward_momentum() {
     }
 }
 
+#[test]
+fn fast_runners_fly_off_crests_and_slower_runners_follow_the_ground() {
+    let mut w = empty();
+    // A 6 m rise, 25 m wide: about 0.019 /m of curvature at the crest.
+    w.terrain = Some(Terrain::from_fn(vec2(-200., -40.), 80, 16, 5., |x, _| {
+        6. * (-(x / 25.).powi(2)).exp()
+    }));
+    let airtime = |speed: f32| {
+        let mut p = at(vec3(-150., 0., 0.));
+        p.velocity = vec3(speed, 0., 0.);
+        let mut airborne = 0;
+        for _ in 0..(400. / speed / FIXED_DT) as usize {
+            p.step(
+                Input {
+                    movement: Vec2::X,
+                    sprint: true,
+                    ..Default::default()
+                },
+                0.,
+                &w,
+                FIXED_DT,
+            );
+            let ground = w
+                .terrain
+                .as_ref()
+                .unwrap()
+                .sample(p.pos.x, p.pos.z)
+                .unwrap()
+                .0;
+            assert!(p.pos.y >= ground - 0.01, "below the ground: {p:?}");
+            airborne += !p.grounded as usize;
+            if p.pos.x > 100. {
+                break;
+            }
+        }
+        airborne as f32 * FIXED_DT
+    };
+    assert_eq!(airtime(25.), 0., "a moderate run should follow the hill");
+    let flight = airtime(50.);
+    assert!(
+        flight > 0.15,
+        "a fast run should leave the crest: {flight} s"
+    );
+}
+#[test]
+fn hopping_cannot_climb_a_face_too_steep_to_walk() {
+    let w = slope(1.5);
+    let mut p = at(vec3(0., 100., 0.));
+    for i in 0..360 {
+        p.step(
+            Input {
+                movement: Vec2::X,
+                jump: i % 4 == 0,
+                jump_held: true,
+                ..Default::default()
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
+        // A hop may rise briefly, but every landing must be lower down.
+        assert!(!p.grounded || p.pos.y <= 100.001, "landed higher: {p:?}");
+    }
+    assert!(p.pos.y < 100., "{p:?}");
+}
+#[test]
+fn touchdowns_along_a_slope_are_soft_and_drops_onto_it_are_hard() {
+    let w = slope(-0.5);
+    let mut along = at(vec3(0., 100., 0.));
+    along.grounded = false;
+    along.velocity = vec3(20., -10., 0.);
+    along.step(
+        Input {
+            movement: Vec2::X,
+            sprint: true,
+            ..Default::default()
+        },
+        0.,
+        &w,
+        FIXED_DT,
+    );
+    assert!(along.grounded && along.landings == 0, "{along:?}");
+    let mut drop = at(vec3(0., 101., 0.));
+    drop.grounded = false;
+    drop.velocity = vec3(0., -10., 0.);
+    for _ in 0..30 {
+        drop.step(Input::default(), 0., &w, FIXED_DT);
+        if drop.grounded {
+            break;
+        }
+    }
+    assert!(
+        drop.grounded && drop.landings == 1 && drop.impact_speed > 7.,
+        "{drop:?}"
+    );
+}
 #[test]
 fn chained_long_jumps_build_speed_above_old_caps_with_diminishing_gains() {
     let w = flat();

@@ -11,6 +11,11 @@ pub const WALK_SPEED: f32 = 7.2;
 pub const SPRINT_SPEED: f32 = 10.5;
 pub const WALL_GRACE: f32 = 0.035;
 pub const WALKABLE_NORMAL_Y: f32 = 0.64;
+/// Fall speed while sliding down a wall the player is holding into.
+pub const WALL_SLIDE_SPEED: f32 = 4.5;
+/// How far past a solid's top edge the capsule centre may rest without moving
+/// onto it. Further out only the rounded base touches, so it slips off.
+const LEDGE_SUPPORT: f32 = 0.12;
 
 /// Earned speed has no hard cap. Each manoeuvre supplies less extra speed as
 /// kinetic energy rises; drag, braking and collisions provide practical limits.
@@ -31,6 +36,8 @@ pub enum Move {
 pub struct Input {
     pub movement: Vec2,
     pub sprint: bool,
+    /// Held modifier: Jump while crouching and moving makes a long jump.
+    pub crouch: bool,
     pub jump: bool,
     pub jump_held: bool,
     pub dive: bool,
@@ -63,6 +70,8 @@ pub struct Player {
     pub peak_speed: f32,
     pub chain: u32,
     pub last_gain: f32,
+    pub crouching: bool,
+    pub wall_sliding: bool,
     gain_time: f32,
     landing_grace: f32,
     dive_used: bool,
@@ -74,6 +83,7 @@ pub struct Player {
     long_air: bool,
     jump_cuttable: bool,
     wall_contact_age: f32,
+    wall_slide_grace: f32,
     touched_wall: bool,
 }
 
@@ -104,6 +114,8 @@ impl Default for Player {
             peak_speed: 0.,
             chain: 0,
             last_gain: 0.,
+            crouching: false,
+            wall_sliding: false,
             gain_time: 0.,
             landing_grace: 0.,
             dive_used: false,
@@ -115,6 +127,7 @@ impl Default for Player {
             long_air: false,
             jump_cuttable: false,
             wall_contact_age: 0.,
+            wall_slide_grace: 0.,
             touched_wall: false,
         }
     }
@@ -210,7 +223,7 @@ impl Player {
                     self.crushed = true;
                     return;
                 }
-                self.move_horizontal(world, 0.);
+                self.move_horizontal(world, 0., true);
                 // A lift must not carry a capsule through a stationary roof.
                 if !self.can_fit(world) {
                     self.crushed = true;
@@ -238,6 +251,7 @@ impl Player {
         let right = vec3(yaw.cos(), 0., -yaw.sin());
         let strength = input.movement.length().min(1.);
         let wish = (right * input.movement.x + forward * input.movement.y).normalize_or_zero();
+        self.crouching = input.crouch && self.grounded && self.motion == Move::Normal;
         if wish.length_squared() > 0. && self.motion == Move::Normal {
             let target = (-wish.x).atan2(-wish.z);
             let difference = (target - self.facing + std::f32::consts::PI)
@@ -245,9 +259,13 @@ impl Player {
                 - std::f32::consts::PI;
             self.facing += difference.clamp(-18. * dt, 18. * dt);
         }
-        // Keep the upward component earned on a slope when launching, so a
-        // fast uphill long jump does not immediately collide with the hill.
-        let slope_launch = if self.grounded && self.ground_normal != Vec3::Y {
+        // Keep the upward component earned running up a slope when launching,
+        // so a fast uphill long jump does not immediately collide with the
+        // hill. Faces too steep to run up give no such boost.
+        let slope_launch = if self.grounded
+            && self.ground_normal != Vec3::Y
+            && self.ground_normal.y >= WALKABLE_NORMAL_Y
+        {
             self.velocity.y.max(0.)
         } else {
             0.
@@ -304,7 +322,9 @@ impl Player {
             self.velocity.y = if self.grounded {
                 5.2 + slope_launch
             } else {
-                (self.velocity.y + 2.).clamp(-10., 4.)
+                // A small lift, capped while rising. It no longer cancels a
+                // fast fall, which made a mid-air dive work as an air brake.
+                (self.velocity.y + 2.).min(4.)
             };
             if self.grounded {
                 self.inherit_platform();
@@ -417,13 +437,22 @@ impl Player {
             self.velocity.z = slowed.z;
         }
         if self.motion == Move::Normal && self.jump_buffer > 0. && self.coyote > 0. {
-            self.velocity.y = if input.sprint && self.speed() > 3. {
-                9.0 + slope_launch
-            } else {
-                11.2 + slope_launch
-            };
-            self.long_air = input.sprint && self.speed() > 3.;
-            self.jump_cuttable = !self.long_air;
+            // Crouch + Jump while moving is the long jump: low, fast and
+            // committed. Every other jump, sprinting or not, keeps its momentum
+            // and variable height.
+            let long = input.crouch && self.speed() > 3.;
+            self.velocity.y = (if long { 9.0 } else { 11.2 }) + slope_launch;
+            self.long_air = long;
+            self.jump_cuttable = !long;
+            if self.ground_normal.y < WALKABLE_NORMAL_Y {
+                // A face too steep to stand on throws the jump away from it,
+                // so repeated hops cannot climb what walking cannot.
+                let away = vec3(self.ground_normal.x, 0., self.ground_normal.z).normalize_or_zero();
+                let into = vec3(self.velocity.x, 0., self.velocity.z).dot(away).min(0.);
+                self.velocity.x += away.x * (6. - into);
+                self.velocity.z += away.z * (6. - into);
+                self.kick_lock = 0.2;
+            }
             if self.long_air {
                 let launch = if wish.length_squared() > 0. {
                     wish
@@ -448,7 +477,7 @@ impl Player {
             && self.jump_buffer > 0.
             && !self.grounded
             && self.wall_grace > 0.
-            && self.wall_contact_age <= 0.12
+            && (self.wall_contact_age <= 0.12 || self.wall_slide_grace > 0.)
             && self.kick_lock <= 0.
             && self.wall_normal.dot(self.last_wall) < 0.8
         {
@@ -475,9 +504,12 @@ impl Player {
             && world
                 .continuous_surface(old_pos.x, old_pos.z)
                 .is_some_and(|s| (s.0 - old_y).abs() < 0.02);
-        self.move_horizontal(world, dt);
+        // Over a crest that falls away faster than gravity can follow, leave
+        // the ground on a natural arc instead of being held to the surface.
+        let adhere = followed_surface && !self.leaves_crest(world, dt);
+        self.move_horizontal(world, dt, adhere);
         // Climb the continuous ramp surface, but never snap an airborne player up.
-        if followed_surface {
+        if adhere {
             if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
                 let reach = 0.16 + self.speed() * dt * 1.5;
                 if (h - old_y).abs() <= reach && self.pos.y <= old_y + reach {
@@ -507,7 +539,8 @@ impl Player {
         self.ground_platform = None;
         let falling_speed = self.velocity.y;
         for (index, s) in world.collision_solids().enumerate() {
-            let gap = horizontal_gap(self.pos, s.min, s.max).length_squared();
+            let offset = horizontal_gap(self.pos, s.min, s.max);
+            let gap = offset.length_squared();
             if gap >= RADIUS * RADIUS {
                 continue;
             }
@@ -520,9 +553,15 @@ impl Player {
             let relative_y =
                 falling_speed - mover.map_or(0., |p| if riding { 0. } else { p.velocity.y });
             let previous_top = top - mover.map_or(0., |p| if riding { 0. } else { p.delta.y });
-            if relative_y <= 0. && before_y >= previous_top - 0.02 && self.pos.y <= top {
+            // Past the edge only the capsule's rounded base rests on the corner.
+            // It holds while moving onto the solid (stepping up, landing short)
+            // and otherwise slips off, so feet never sink visibly beside a ledge.
+            let onto = Vec2::new(self.velocity.x, self.velocity.z).dot(offset) < -0.5 * gap.sqrt();
+            let supported = gap <= LEDGE_SUPPORT * LEDGE_SUPPORT || onto;
+            if supported && relative_y <= 0. && before_y >= previous_top - 0.02 && self.pos.y <= top
+            {
                 self.pos.y = top;
-                self.land();
+                self.land(Vec3::Y, -relative_y);
                 self.ground_platform = platform;
                 self.support_velocity = mover.map_or(Vec3::ZERO, |p| p.velocity);
             } else if self.velocity.y > 0. && before_y <= ceiling + 0.01 && self.pos.y >= ceiling {
@@ -534,8 +573,15 @@ impl Player {
             if let Some(h) = r.height(self.pos.x, self.pos.z) {
                 if self.velocity.y <= 0. && before_y >= h - 0.15 && self.pos.y <= h {
                     self.pos.y = h;
-                    self.land();
-                    self.ground_normal = r.normal();
+                    let n = r.normal();
+                    self.land(
+                        n,
+                        if was_grounded {
+                            0.
+                        } else {
+                            -self.velocity.dot(n)
+                        },
+                    );
                 }
             }
         }
@@ -546,9 +592,25 @@ impl Player {
         {
             if self.pos.y < h && (before_y >= h - 0.2 || was_grounded) {
                 self.pos.y = h;
-                self.land();
-                self.ground_normal = n;
+                self.land(
+                    n,
+                    if was_grounded {
+                        0.
+                    } else {
+                        -self.velocity.dot(n)
+                    },
+                );
             }
+        }
+        if self.grounded && !was_grounded && self.ground_normal.y < WALKABLE_NORMAL_Y {
+            // Landing on a face too steep to stand on: keep only the motion
+            // along it, so drifting into the face slides down instead of being
+            // turned into speed up it.
+            let n = self.ground_normal;
+            let v = vec3(self.velocity.x, falling_speed, self.velocity.z);
+            let tangent = v - n * v.dot(n).min(0.);
+            self.velocity.x = tangent.x;
+            self.velocity.z = tangent.z;
         }
         if self.grounded {
             if was_grounded {
@@ -575,13 +637,21 @@ impl Player {
         } else if self.wall_grace <= 0. {
             self.wall_contact_age = 0.;
         }
-        if !self.grounded
+        // Holding into a wall while airborne slides down it, and a wall kick
+        // can be made at any point of the slide. Brushing past a wall still
+        // catches briefly, as before.
+        let pressing = wish.dot(self.wall_normal) < -0.3;
+        self.wall_sliding = !self.grounded
+            && self.motion == Move::Normal
             && self.touched_wall
-            && self.wall_contact_age <= 0.12
-            && self.velocity.y < -5.5
-        {
-            self.velocity.y = -5.5;
-            self.action = "WALL SLIDE";
+            && (pressing || self.wall_contact_age <= 0.12);
+        self.wall_slide_grace = if self.wall_sliding && pressing {
+            0.1
+        } else {
+            (self.wall_slide_grace - dt).max(0.)
+        };
+        if self.wall_sliding && self.velocity.y < -WALL_SLIDE_SPEED {
+            self.velocity.y = -WALL_SLIDE_SPEED;
         }
         if self.grounded && self.motion == Move::Normal {
             self.dive_used = false;
@@ -602,6 +672,8 @@ impl Player {
         } else if self.grounded {
             self.action = if self.ground_normal.y < WALKABLE_NORMAL_Y {
                 "SLOPE SLIDE"
+            } else if self.crouching {
+                "CROUCH"
             } else if self.speed() > 0.5 {
                 if input.sprint {
                     "SPRINT"
@@ -611,6 +683,8 @@ impl Player {
             } else {
                 "READY"
             };
+        } else if self.wall_sliding && self.velocity.y < 0. {
+            self.action = "WALL SLIDE";
         } else if self.velocity.y < 0. && self.wall_grace <= 0. {
             self.action = "AIRBORNE";
         }
@@ -623,6 +697,42 @@ impl Player {
         }
     }
 
+    /// Whether the terrain curves away faster than gravity can follow:
+    /// horizontal speed squared times downward curvature exceeds gravity, and
+    /// the ground one step ahead already drops below the ballistic arc. The
+    /// curvature spans a whole 6 m cell, so the edges between heightfield
+    /// triangles do not read as sharp crests, and the arc test keeps the
+    /// runner on rising ground until the crest itself. Ramps are planar;
+    /// their top edges already release the runner.
+    fn leaves_crest(&self, world: &World, dt: f32) -> bool {
+        let horizontal = vec3(self.velocity.x, 0., self.velocity.z);
+        let speed = horizontal.length();
+        let Some(terrain) = world.terrain.as_ref().filter(|_| speed > 15.) else {
+            return false;
+        };
+        let height = |p: Vec3| terrain.sample(p.x, p.z).map(|s| s.0);
+        let along = horizontal / speed * 6.;
+        let (Some(behind), Some(here), Some(ahead)) = (
+            height(self.pos - along),
+            height(self.pos),
+            height(self.pos + along),
+        ) else {
+            return false;
+        };
+        // Only while running on the terrain itself, not a ramp or block above.
+        if (here - self.pos.y).abs() > 0.02 {
+            return false;
+        }
+        let curvature = (behind - 2. * here + ahead) / 36.;
+        let gravity = if self.velocity.y < 0. {
+            GRAVITY * 1.25
+        } else {
+            GRAVITY
+        };
+        let arc = self.pos.y + self.velocity.y * dt - 0.5 * gravity * dt * dt;
+        -curvature * speed * speed > gravity
+            && height(self.pos + horizontal * dt).is_some_and(|next| next < arc)
+    }
     fn can_fit(&self, world: &World) -> bool {
         !world
             .collision_solids()
@@ -634,10 +744,12 @@ impl Player {
         self.ground_platform = None;
         self.support_velocity = Vec3::ZERO;
     }
-    fn land(&mut self) {
-        if self.velocity.y < -1. {
+    /// `impact` is the speed into the surface, so a fast touchdown along a
+    /// matching slope does not read as a hard landing.
+    fn land(&mut self, normal: Vec3, impact: f32) {
+        if impact > 1. {
             self.landings += 1;
-            self.impact_speed = -self.velocity.y;
+            self.impact_speed = impact;
         }
         if self.motion == Move::Dive {
             self.motion = Move::Slide;
@@ -648,7 +760,7 @@ impl Player {
             self.motion = Move::Normal;
         }
         self.grounded = true;
-        self.ground_normal = Vec3::Y;
+        self.ground_normal = normal;
         self.landing_grace = 0.10;
         self.air_carry = Vec3::ZERO;
         self.ground_platform = None;
@@ -695,7 +807,7 @@ impl Player {
             self.velocity -= normal * into;
         }
     }
-    fn move_horizontal(&mut self, world: &World, dt: f32) {
+    fn move_horizontal(&mut self, world: &World, dt: f32, adhere: bool) {
         let carry = if self.grounded {
             Vec3::ZERO
         } else {
@@ -722,7 +834,8 @@ impl Player {
                     self.velocity.y.max(0.) * dt * (step + 1) as f32 / steps as f32
                 };
             if let Some((h, n)) = world.continuous_surface(self.pos.x, self.pos.z) {
-                let follows = self.grounded
+                let follows = adhere
+                    && self.grounded
                     && world
                         .continuous_surface(previous.x, previous.z)
                         .is_some_and(|s| (s.0 - previous.y).abs() < 0.02);
@@ -740,8 +853,7 @@ impl Player {
                     }
                     if n.y >= WALKABLE_NORMAL_Y {
                         self.pos.y = h;
-                        self.land();
-                        self.ground_normal = n;
+                        self.land(n, -into);
                     }
                 }
             }

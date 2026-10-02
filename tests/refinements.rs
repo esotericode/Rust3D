@@ -2,7 +2,7 @@ use glam::{vec3, Vec2, Vec3};
 use stride::{
     engine::{
         controller::radial_deadzone,
-        physics::{Input, Player, WALK_SPEED},
+        physics::{Input, Player, WALK_SPEED, WALL_SLIDE_SPEED},
         renderer::viewport,
         FIXED_DT,
     },
@@ -166,7 +166,7 @@ fn touch_wall(w: &World) -> Player {
     p
 }
 #[test]
-fn wall_kick_requires_prompt_contact_and_wall_slide_is_brief() {
+fn wall_slide_lasts_while_holding_into_the_wall_and_kicks_at_any_point() {
     let w = wall();
     let mut crisp = touch_wall(&w);
     crisp.step(
@@ -180,9 +180,15 @@ fn wall_kick_requires_prompt_contact_and_wall_slide_is_brief() {
     );
     assert_eq!(crisp.wall_kicks, 1);
     assert!(crisp.velocity.x < -11. && crisp.velocity.y > 11.);
+    // Holding into the wall keeps a steady slide instead of falling freely.
     let mut late = touch_wall(&w);
-    step(&mut late, &w, input(1., 0.), 20);
-    assert!(late.velocity.y < -6.);
+    step(&mut late, &w, input(1., 0.), 60);
+    assert!(late.wall_sliding, "{late:?}");
+    assert!(
+        (late.velocity.y + WALL_SLIDE_SPEED).abs() < 0.001,
+        "{late:?}"
+    );
+    assert_eq!(late.action, "WALL SLIDE");
     late.step(
         Input {
             jump: true,
@@ -192,10 +198,25 @@ fn wall_kick_requires_prompt_contact_and_wall_slide_is_brief() {
         &w,
         FIXED_DT,
     );
-    assert_eq!(
-        late.wall_kicks, 0,
-        "late wall attachment should not grant a kick"
+    assert_eq!(late.wall_kicks, 1, "a held slide should allow a kick");
+    assert!(late.velocity.x < -11. && late.velocity.y > 11.);
+}
+#[test]
+fn brushing_a_wall_without_holding_into_it_only_catches_briefly() {
+    let w = wall();
+    let mut p = touch_wall(&w);
+    step(&mut p, &w, Input::default(), 20);
+    assert!(!p.wall_sliding && p.velocity.y < -6., "{p:?}");
+    p.step(
+        Input {
+            jump: true,
+            ..Default::default()
+        },
+        0.,
+        &w,
+        FIXED_DT,
     );
+    assert_eq!(p.wall_kicks, 0, "a released wall should not grant a kick");
 }
 #[test]
 fn wall_kick_grace_expires_after_leaving_the_wall() {

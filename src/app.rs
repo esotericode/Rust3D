@@ -30,6 +30,7 @@ pub struct Game {
     audio: Audio,
     dust: Vec<Dust>,
     landing_squash: f32,
+    wall_dust: f32,
     camera: Camera,
     keys: HashSet<KeyCode>,
     controller: Controller,
@@ -87,6 +88,7 @@ impl Game {
             audio: Audio::new(!args.iter().any(|s| s == "--smoke-test")),
             dust: Vec::new(),
             landing_squash: 0.,
+            wall_dust: 0.,
             camera: Camera::new(SPAWN),
             keys: HashSet::new(),
             controller: Controller::default(),
@@ -495,6 +497,9 @@ impl Game {
                 sprint: self.down(KeyCode::LeftShift)
                     || self.down(KeyCode::RightShift)
                     || self.controller.state.sprint,
+                crouch: self.down(KeyCode::LeftControl)
+                    || self.down(KeyCode::RightControl)
+                    || self.controller.state.crouch,
                 jump: std::mem::take(&mut self.jump_pending),
                 jump_held: self.down(KeyCode::Space) || self.controller.state.jump_held,
                 dive: std::mem::take(&mut self.dive_pending),
@@ -619,6 +624,17 @@ impl Game {
         if step {
             self.audio.play(Cue::Step, self.settings.volume, 0.45);
             self.burst(2);
+        }
+        // A light trail of dust where the feet scrape a wall during a slide.
+        self.wall_dust = (self.wall_dust - FIXED_DT).max(0.);
+        if self.player.wall_sliding && self.player.velocity.y < -1. && self.wall_dust <= 0. {
+            self.wall_dust = 0.05;
+            let n = self.player.wall_normal;
+            self.dust.push(Dust {
+                pos: self.player.pos + Vec3::Y * 0.4 - n * 0.28,
+                velocity: n * 0.8 + Vec3::Y * 0.6,
+                life: 0.3,
+            });
         }
         self.landing_squash = (self.landing_squash - FIXED_DT * 1.4).max(0.);
         for d in &mut self.dust {
@@ -870,8 +886,9 @@ impl Game {
                 40.,
                 h - 44.,
                 &format!(
-                    "{} SPRINT   RIGHT STICK CAMERA   START MENU / COURSES",
-                    BUTTON_NAMES[self.settings.bindings[2]]
+                    "{} SPRINT   {} + JUMP LONG JUMP   RIGHT STICK CAMERA   START MENU",
+                    BUTTON_NAMES[self.settings.bindings[2]],
+                    BUTTON_NAMES[self.settings.bindings[4]]
                 ),
                 1.2,
                 MUTED,
@@ -880,7 +897,7 @@ impl Game {
             ui.text(
                 40.,
                 h - 65.,
-                "WASD MOVE   SPACE JUMP / ROLLOUT   F DIVE   SHIFT SPRINT",
+                "WASD MOVE   SPACE JUMP / ROLLOUT   CTRL + SPACE LONG JUMP   F DIVE   SHIFT SPRINT",
                 1.5,
                 WHITE,
             );
@@ -1087,7 +1104,7 @@ impl EventHandler for Game {
                 let editable = match self.menu.screen {
                     Some(Screen::Options) => row < 4,
                     Some(Screen::Camera) => row < 3,
-                    Some(Screen::Controller) => row < 7,
+                    Some(Screen::Controller) => row < 8,
                     Some(Screen::Audio) => row == 0,
                     _ => false,
                 };
@@ -1319,6 +1336,12 @@ fn build_dynamic(
 ) -> Mesh {
     let mut m = Mesh::default();
     let (dust, squash) = feedback;
+    // Holding crouch squats the robot, so the long-jump modifier is visible.
+    let squash = if p.crouching {
+        squash.max(0.16)
+    } else {
+        squash
+    };
     for platform in &world.platforms {
         let center = platform.rendered_center(alpha);
         m.cube(center, platform.size, [0.36, 0.29, 0.20], 3.);
@@ -1403,8 +1426,18 @@ fn build_dynamic(
     m.cube(vec3(0., 0.72, 0.), vec3(0.48, 0.12, 0.38), NAVY, 4.);
     let swing = if p.grounded {
         p.animation_phase.sin() * (p.speed() / 9.).min(1.) * 0.7
+    } else if p.wall_sliding {
+        0.12
     } else {
         -0.5
+    };
+    // Sliding down a wall, both hands reach up against it.
+    let arm_pose = |side: f32| {
+        if p.wall_sliding {
+            Mat4::from_rotation_x(2.5)
+        } else {
+            Mat4::from_rotation_x(-swing * side)
+        }
     };
     for side in [-1., 1.] {
         let leg = m.vertices.len();
@@ -1420,8 +1453,7 @@ fn build_dynamic(
         m.cube(vec3(0., -0.45, 0.), vec3(0.17, 0.13, 0.20), ORANGE, 3.);
         m.transform_from(
             arm,
-            Mat4::from_translation(vec3(side * 0.37, 1.22, 0.))
-                * Mat4::from_rotation_x(-swing * side),
+            Mat4::from_translation(vec3(side * 0.37, 1.22, 0.)) * arm_pose(side),
         );
     }
     m.transform_from(

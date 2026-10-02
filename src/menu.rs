@@ -72,7 +72,7 @@ impl Menu {
             Some(Screen::Course) => 10,
             Some(Screen::Options) => 9,
             Some(Screen::Camera) => 5,
-            Some(Screen::Controller) => 9,
+            Some(Screen::Controller) => 10,
             Some(Screen::Audio) => 3,
             Some(Screen::Help) => 1,
             Some(Screen::ConfirmRestart) => 2,
@@ -123,13 +123,13 @@ impl Menu {
                         (self.draft.look_deadzone_percent as i32 + direction * 5).rem_euclid(35)
                             as u32
                 }
-                2..=5 => {
+                2..=6 => {
                     let action = self.selected - 2;
                     let button =
                         (self.draft.bindings[action] as i32 + direction).rem_euclid(8) as usize;
                     self.draft.bind(action, button);
                 }
-                6 => self.draft.vibration = !self.draft.vibration,
+                7 => self.draft.vibration = !self.draft.vibration,
                 _ => {}
             },
             Some(Screen::Audio) if self.selected == 0 => {
@@ -184,8 +184,8 @@ impl Menu {
                 }
             },
             Some(Screen::Controller) => match self.selected {
-                7 => Action::Apply,
-                8 => Action::Back,
+                8 => Action::Apply,
+                9 => Action::Back,
                 _ => {
                     self.adjust(1);
                     Action::None
@@ -264,13 +264,20 @@ impl Menu {
                 ),
                 (
                     format!("SHIFT / {}", BUTTON_NAMES[applied.bindings[2]]),
-                    "SPRINT / ADD JUMP FOR LONG JUMP",
+                    "SPRINT / JUMPS KEEP THEIR SPEED",
+                ),
+                (
+                    format!("CTRL / {}", BUTTON_NAMES[applied.bindings[4]]),
+                    "CROUCH / ADD JUMP TO LONG JUMP",
                 ),
                 (
                     format!("F / {}", BUTTON_NAMES[applied.bindings[1]]),
                     "DIVE / JUMP ON LANDING TO ROLL OUT",
                 ),
-                ("SPACE / JUMP".into(), "PRESS AT WALL CONTACT TO KICK"),
+                (
+                    "SPACE / JUMP".into(),
+                    "HOLD INTO A WALL TO SLIDE, JUMP TO KICK",
+                ),
                 ("Q-E / RIGHT STICK".into(), "CAMERA / RIGHT MOUSE DRAG ALSO"),
                 (
                     format!("C / {}", BUTTON_NAMES[applied.bindings[3]]),
@@ -285,14 +292,14 @@ impl Menu {
             }
             ui.text(
                 342.,
-                495.,
+                507.,
                 "CHAIN LONG JUMP, DIVE AND ROLLOUT TO BUILD SPEED. DOWNHILL ADDS MORE.",
                 1.2,
                 MUTED,
             );
             ui.text(
                 342.,
-                520.,
+                530.,
                 "LIGHT STICK OR OPPOSITE INPUT BRAKES. HOLD SPRINT TO KEEP SLIDING.",
                 1.15,
                 MUTED,
@@ -355,6 +362,7 @@ impl Menu {
                 BUTTON_NAMES[self.draft.bindings[1]].into(),
                 BUTTON_NAMES[self.draft.bindings[2]].into(),
                 BUTTON_NAMES[self.draft.bindings[3]].into(),
+                BUTTON_NAMES[self.draft.bindings[4]].into(),
                 on(self.draft.vibration),
                 "".into(),
                 "".into(),
@@ -423,6 +431,7 @@ impl Menu {
                 BINDING_NAMES[1],
                 BINDING_NAMES[2],
                 BINDING_NAMES[3],
+                BINDING_NAMES[4],
                 "VIBRATION",
                 "APPLY AND SAVE",
                 "BACK",
@@ -504,20 +513,20 @@ impl Menu {
             Screen::Controller => {
                 ui.text(
                     342.,
-                    531.,
+                    553.,
                     "DUPLICATE BINDINGS SWAP. MENU A/B AND START STAY FIXED.",
-                    1.2,
+                    1.1,
                     MUTED,
                 );
                 ui.text(
                     342.,
-                    551.,
+                    566.,
                     if pad.is_some() {
                         "CONTROLLER CONNECTED"
                     } else {
                         "NO CONTROLLER CONNECTED"
                     },
-                    1.2,
+                    1.1,
                     MINT,
                 );
             }
@@ -593,6 +602,19 @@ mod tests {
         menu.selected = 3;
         assert_eq!(menu.confirm(), Action::None);
         assert!(!menu.draft.vsync && menu.vsync_at_launch);
+    }
+    #[test]
+    fn crouch_row_rebinds_and_swaps_with_the_displaced_action() {
+        let settings = Settings::default();
+        let mut menu = Menu::new(settings.clone());
+        menu.open(Screen::Controller, &settings);
+        menu.selected = 6;
+        menu.adjust(1);
+        assert_eq!(menu.draft.bindings[4], 7);
+        assert_eq!(
+            menu.draft.bindings[2], 6,
+            "the displaced sprint button swaps"
+        );
     }
     #[test]
     fn restart_requires_explicit_confirmation_and_default_is_cancel() {

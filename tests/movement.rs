@@ -33,6 +33,7 @@ fn movement(x: f32, y: f32, sprint: bool) -> Input {
     Input {
         movement: Vec2::new(x, y),
         sprint,
+        crouch: false,
         jump: false,
         jump_held: false,
         dive: false,
@@ -105,6 +106,7 @@ fn long_jump_clears_the_playground_gap() {
     p.step(
         Input {
             jump: true,
+            crouch: true,
             ..movement(1., 0., true)
         },
         0.,
@@ -259,4 +261,51 @@ fn walking_off_edge_keeps_a_short_coyote_jump() {
         FIXED_DT,
     );
     assert!(p.velocity.y > 9. && p.jumps == 1);
+}
+#[test]
+fn crouch_jump_is_the_long_jump_and_sprint_jumps_keep_full_height() {
+    let w = floor();
+    let run_and_jump = |crouch: bool| {
+        let mut p = player(vec3(0., 0., 20.));
+        steps(&mut p, &w, movement(0., 1., true), 60);
+        p.step(
+            Input {
+                jump: true,
+                jump_held: true,
+                crouch,
+                ..movement(0., 1., true)
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
+        let launch_speed = p.speed();
+        let mut apex = 0_f32;
+        for _ in 0..150 {
+            p.step(
+                Input {
+                    jump_held: true,
+                    ..movement(0., 1., true)
+                },
+                0.,
+                &w,
+                FIXED_DT,
+            );
+            apex = apex.max(p.pos.y);
+            if p.grounded {
+                break;
+            }
+        }
+        (apex, launch_speed, p.long_jumps)
+    };
+    let (apex, speed, long_jumps) = run_and_jump(false);
+    assert!(
+        apex > 2.1 && speed > 10. && long_jumps == 0,
+        "sprint jump: apex {apex}, speed {speed}"
+    );
+    let (apex, speed, long_jumps) = run_and_jump(true);
+    assert!(
+        apex < 1.6 && speed > 14. && long_jumps == 1,
+        "long jump: apex {apex}, speed {speed}"
+    );
 }

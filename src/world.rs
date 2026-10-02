@@ -178,7 +178,7 @@ impl Default for World {
                 },
                 Beacon {
                     pos: vec3(10., 3., -16.),
-                    name: "GAP / SHIFT + SPACE",
+                    name: "GAP / LONG JUMP: CTRL + SPACE",
                 },
                 Beacon {
                     pos: vec3(17.2, 4.4, -9.5),

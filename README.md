@@ -36,9 +36,9 @@ before attaching it to the release. The tag and Windows download are preserved.
 | Control | Action |
 | --- | --- |
 | WASD / arrows | Camera-relative movement |
-| Shift | Sprint |
-| Space | Tap for a hop, hold for a high jump; press promptly at a wall to kick |
-| Shift + Space while moving | Long jump |
+| Shift | Sprint; jumps keep their full height and speed |
+| Space | Tap for a hop, hold for a high jump; at a wall, kick off it |
+| Ctrl + Space while moving | Long jump (Ctrl is crouch) |
 | Q / E or right mouse drag | Orbit camera |
 | Mouse wheel | Zoom |
 | F | Dive; press Jump or Dive during the landing slide to roll out |
@@ -51,7 +51,8 @@ before attaching it to the release. The tag and Windows download are preserved.
 | Left stick | Analog walk/run |
 | Right stick | Orbit camera |
 | A / Cross | Jump / wall kick / confirm |
-| RT / R2 | Sprint; add jump for a long jump |
+| RT / R2 | Sprint |
+| LT / L2 | Crouch; add jump while moving for a long jump |
 | X / Square | Dive; Jump or Dive rolls out after landing |
 | Y / Triangle | Recenter camera |
 | Start / Menu | Pause / resume |
@@ -70,14 +71,17 @@ movement until there is enough room to stand.
 
 Gamepads use gilrs mappings and support hotplugging. The default circular
 deadzone is **10% on both sticks**; Controller Settings lets you change each
-stick independently from 0% to 30%, remap four gameplay actions, and toggle
+stick independently from 0% to 30%, remap five gameplay actions, and toggle
 vibration. Duplicate bindings swap rather than triggering two actions.
 Input outside the deadzone is rescaled continuously, preserving slow walking.
 Use a controller supported by Windows Gaming Input; Xbox-compatible controllers
 are the primary target. Other devices depend on driver and mapping support.
 
-Wall kicks require a fresh jump press during the first 120 ms of wall contact,
-with 35 ms of grace after leaving contact. Alternate walls to climb. Beacons
+Hold toward a wall in the air to slide down it at a steady 4.5 m/s; press
+Jump at any point of the slide to kick off. Brushing a wall without holding
+into it catches you for 120 ms, with 35 ms of grace after leaving contact.
+Alternate walls to climb. Older preference files gain the crouch binding on
+LT (or the first free button) automatically. Beacons
 activate in order and save your respawn position. Falling resets automatically.
 The timer begins on movement; best times last for the current session.
 
@@ -89,11 +93,15 @@ larger landscape adds 180 seeded blocks and 40 ramps, while keeping the old
 routes and an open 550 m speed lane clear. Region travel sets a respawn point.
 
 Slope following keeps feet on the rendered terrain. Gravity adds speed downhill
-and spends it uphill; steep faces slide, and uphill launches retain upward
-momentum. Long jumps, dives and rollouts add speed with diminishing returns,
-without a hard horizontal cap. Strong forward input and air coasting retain
-earned speed. Lighter analog input or opposite input brakes for precise pads;
-fast turns require wider arcs. Speed, peak and recent chain appear in the HUD.
+and spends it uphill; uphill launches retain upward momentum. Faces too steep
+to stand on slide, and jumping from them springs away from the face, so they
+cannot be climbed by hopping. Fast enough over a crest that falls away faster
+than gravity can follow, you leave the ground on a natural arc. Long jumps,
+dives and rollouts add speed with diminishing returns, without a hard
+horizontal cap. Strong forward input and air coasting retain earned speed.
+Lighter analog input or opposite input brakes for precise pads, blending
+smoothly with stick strength; fast turns require wider arcs. Belly slides can
+be steered in gentle arcs. Speed, peak and recent chain appear in the HUD.
 The camera smoothly widens and pulls back at speed. Collision is subdivided by
 distance to protect high-speed movement against thin obstacles.
 
@@ -150,8 +158,8 @@ Keyboard, mouse, and controller navigation are supported.
 - Windowed/fullscreen mode.
 - VSync on or off. It takes effect the next time the game starts.
 - Camera: 25–200% sensitivity, invert vertical look, optional automatic alignment.
-- Controller: separate movement/camera deadzones, jump/dive/sprint/recenter
-  bindings, optional vibration. Menu A/B and Start retain their standard roles.
+- Controller: separate movement/camera deadzones, jump/dive/sprint/recenter/
+  crouch bindings, optional vibration. Menu A/B and Start retain their standard roles.
 - Sound: effects volume, including mute. All effects are synthesized in Rust.
 
 The default is **1280 x 720 with VSync on**, which paces frames to the display

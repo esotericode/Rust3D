@@ -32,8 +32,8 @@ the travel and jump when the destination is close. The pads ease into their
 endpoints and dwell there for 0.9 seconds. Their cycles are deterministic,
 including the offset cycles in Clockwork. There are no random hazards.
 
-For the long-jump lane, run along the striped launch deck, hold Sprint and press
-Jump near its edge. On the following runway, press Dive before the low arch.
+For the long-jump lane, run along the striped launch deck, hold Crouch (Ctrl or
+LT) and press Jump near its edge. On the following runway, press Dive before the low arch.
 Stay low through it, then press Jump or Dive during the landing slide to roll
 out toward the raised exit. Jump once more if you recover to standing first.
 

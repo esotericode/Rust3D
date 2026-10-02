@@ -18,6 +18,8 @@ fn input_toward(p: &Player, target: Vec3, sprint: bool, air: bool) -> Input {
     Input {
         movement: Vec2::new(desired.x, -desired.z).clamp_length_max(speed) / speed,
         sprint,
+        // The pilot's sprinting attempts are long jumps, which need crouch.
+        crouch: sprint,
         jump_held: true,
         ..Default::default()
     }

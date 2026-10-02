@@ -17,9 +17,10 @@ This build is for Intel/AMD 64-bit PCs, not ARM or Alpine/musl.
 
 CONTROLS
 WASD / arrows / left stick      Camera-relative movement
-Shift / RT / R2                 Sprint
+Shift / RT / R2                 Sprint (jumps keep full height and speed)
 Space / A / Cross               Tap hop / hold high jump / wall kick
-Sprint + Jump                   Long jump
+Ctrl / LT / L2                  Crouch
+Crouch + Jump while moving      Long jump
 F / X / Square                  Dive
 Jump or Dive on landing slide   Rollout
 Q-E / right stick / RMB drag    Camera orbit
@@ -46,9 +47,11 @@ faces and scattered blocks. Travel sets your respawn point.
 
 Chain long jumps, dives and rollouts to build speed. Gains diminish with speed,
 with no hard horizontal cap. Downhill gravity adds speed; uphill spends it.
-Steep faces slide. Uphill launches retain upward slope momentum.
-Hold Sprint to extend a slide. Strong forward input preserves speed; air with
-no input coasts. Light stick or opposite input brakes. Fast turns need wide arcs.
+Steep faces slide and jumps spring away from them. Uphill launches retain
+upward slope momentum; fast runs fly off crests. Hold Sprint to extend a slide
+and steer it in gentle arcs. Strong forward input preserves speed; air with no
+input coasts. Light stick or opposite input brakes. Fast turns need wide arcs.
+Hold toward a wall in the air to slide down it; Jump kicks off at any point.
 HUD: current speed, peak, chain, region, coordinates and support slope.
 
 The original beacon lab and Skyway remain. Pause > Skyway / Section Practice
