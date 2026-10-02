@@ -148,12 +148,15 @@ Keyboard, mouse, and controller navigation are supported.
 - Render resolutions: 960 x 540, 1280 x 720, 1600 x 900, 1920 x 1080, 2560 x 1440.
 - Frame caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
 - Windowed/fullscreen mode.
+- VSync on or off. It takes effect the next time the game starts.
 - Camera: 25–200% sensitivity, invert vertical look, optional automatic alignment.
 - Controller: separate movement/camera deadzones, jump/dive/sprint/recenter
   bindings, optional vibration. Menu A/B and Start retain their standard roles.
 - Sound: effects volume, including mute. All effects are synthesized in Rust.
 
-The default is **1280 x 720 at a 60 FPS cap**. Render resolution controls the
+The default is **1280 x 720 with VSync on**, which paces frames to the display
+and prevents tearing. The default 240 FPS cap only matters if a driver forces
+VSync off. Render resolution controls the
 actual offscreen game image. Windowed mode requests that window size; desktop
 DPI scaling can make its physical size differ. Fullscreen scales the game image
 to the display with aspect-preserving letterboxing. Rendering uses 4x MSAA when

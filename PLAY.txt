@@ -103,7 +103,8 @@ and never enters the full-course best. Return to Playground is also a menu optio
 
 OPTIONS
 F2, or Options in the pause menu. Apply and Save commits your draft changes.
-Default: 1280x720 render resolution, 60 FPS cap, windowed.
+Default: 1280x720 render resolution, VSync on, 240 FPS safety cap, windowed.
+VSync prevents tearing; changing it takes effect the next time the game starts.
 Render sizes: 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440.
 Caps: 30, 60, 90, 120, 144, 165, 240 FPS, or uncapped.
 Fullscreen scales the render image to the display and preserves aspect ratio.

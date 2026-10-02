@@ -81,7 +81,7 @@ fn main() {
             high_dpi: true,
             sample_count: 4,
             platform: miniquad::conf::Platform {
-                swap_interval: Some(0),
+                swap_interval: Some(settings.vsync as i32),
                 ..Default::default()
             },
             ..Default::default()

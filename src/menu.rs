@@ -43,12 +43,15 @@ pub struct Menu {
     pub selected: usize,
     pub draft: Settings,
     pub status: String,
+    /// VSync is fixed when the window opens; changes apply after a restart.
+    pub vsync_at_launch: bool,
 }
 impl Menu {
     pub fn new(settings: Settings) -> Self {
         Self {
             screen: None,
             selected: 0,
+            vsync_at_launch: settings.vsync,
             draft: settings,
             status: String::new(),
         }
@@ -67,7 +70,7 @@ impl Menu {
             Some(Screen::Pause) => 9,
             Some(Screen::Explore) => 6,
             Some(Screen::Course) => 10,
-            Some(Screen::Options) => 8,
+            Some(Screen::Options) => 9,
             Some(Screen::Camera) => 5,
             Some(Screen::Controller) => 9,
             Some(Screen::Audio) => 3,
@@ -96,6 +99,7 @@ impl Menu {
                         as usize
                 }
                 2 => self.draft.fullscreen = !self.draft.fullscreen,
+                3 => self.draft.vsync = !self.draft.vsync,
                 _ => {}
             },
             Some(Screen::Camera) => match self.selected {
@@ -161,11 +165,11 @@ impl Menu {
                 }
             }
             Some(Screen::Options) => match self.selected {
-                3 => Action::Camera,
-                4 => Action::Controller,
-                5 => Action::Audio,
-                6 => Action::Apply,
-                7 => Action::Back,
+                4 => Action::Camera,
+                5 => Action::Controller,
+                6 => Action::Audio,
+                7 => Action::Apply,
+                8 => Action::Back,
                 _ => {
                     self.adjust(1);
                     Action::None
@@ -321,6 +325,15 @@ impl Menu {
                     } else {
                         "WINDOWED".into()
                     },
+                    format!(
+                        "{}{}",
+                        if self.draft.vsync { "ON" } else { "OFF" },
+                        if self.draft.vsync != self.vsync_at_launch {
+                            " / AFTER RESTART"
+                        } else {
+                            ""
+                        }
+                    ),
                     "".into(),
                     "".into(),
                     "".into(),
@@ -389,6 +402,7 @@ impl Menu {
                 "RENDER RESOLUTION",
                 "FRAME-RATE CAP",
                 "DISPLAY MODE",
+                "VSYNC",
                 "CAMERA SETTINGS",
                 "CONTROLLER SETTINGS",
                 "SOUND SETTINGS",
@@ -471,7 +485,7 @@ impl Menu {
                 let (w, h) = applied.size();
                 ui.text(
                     342.,
-                    503.,
+                    522.,
                     &format!(
                         "RENDER {w} X {h} / WINDOW {:.0} X {:.0}",
                         window.0, window.1
@@ -481,7 +495,7 @@ impl Menu {
                 );
                 ui.text(
                     342.,
-                    527.,
+                    546.,
                     &format!("ACTUAL {:.0} FPS / MOVEMENT SIMULATION 120 HZ", fps),
                     1.3,
                     MINT,
@@ -566,10 +580,19 @@ mod tests {
         menu.adjust(1);
         menu.open_sub(Screen::Options);
         assert_eq!(menu.draft.size(), (1600, 900));
-        menu.selected = 6;
+        menu.selected = 7;
         assert_eq!(menu.confirm(), Action::Apply);
         menu.open(Screen::Options, &original);
         assert_eq!(menu.draft, original);
+    }
+    #[test]
+    fn vsync_row_toggles_the_draft_until_applied() {
+        let settings = Settings::default();
+        let mut menu = Menu::new(settings.clone());
+        menu.open(Screen::Options, &settings);
+        menu.selected = 3;
+        assert_eq!(menu.confirm(), Action::None);
+        assert!(!menu.draft.vsync && menu.vsync_at_launch);
     }
     #[test]
     fn restart_requires_explicit_confirmation_and_default_is_cancel() {

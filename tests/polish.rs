@@ -402,3 +402,13 @@ fn preferences_migrate_old_deadzones_and_reject_duplicate_bindings() {
     );
     assert_eq!(bad, Settings::default());
 }
+#[test]
+fn vsync_defaults_on_and_round_trips() {
+    assert!(Settings::default().vsync);
+    let off = Settings {
+        vsync: false,
+        ..Default::default()
+    };
+    assert_eq!(Settings::decode(&off.encode()), off);
+    assert!(Settings::decode("vsync=oops\n").vsync);
+}

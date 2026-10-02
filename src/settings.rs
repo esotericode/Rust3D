@@ -42,12 +42,16 @@ pub struct Settings {
     pub bindings: [usize; 4],
     pub vibration: bool,
     pub volume: u32,
+    /// Applied when the window opens, so a change takes effect on restart.
+    pub vsync: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
             resolution: 1,
-            frame_cap: 1,
+            // VSync paces frames to the display; the 240 cap only applies if a
+            // driver overrides VSync off.
+            frame_cap: 6,
             fullscreen: false,
             deadzone_percent: 10,
             look_deadzone_percent: 10,
@@ -57,6 +61,7 @@ impl Default for Settings {
             bindings: [0, 2, 7, 3],
             vibration: true,
             volume: 60,
+            vsync: true,
         }
     }
 }
@@ -83,9 +88,9 @@ impl Settings {
         self.bindings[action] = button;
     }
     pub fn encode(&self) -> String {
-        format!("resolution={}\nframe_cap={}\nfullscreen={}\ndeadzone={}\nlook_deadzone={}\ncamera_sensitivity={}\ninvert_y={}\nauto_camera={}\nbindings={},{},{},{}\nvibration={}\nvolume={}\n",
+        format!("resolution={}\nframe_cap={}\nfullscreen={}\ndeadzone={}\nlook_deadzone={}\ncamera_sensitivity={}\ninvert_y={}\nauto_camera={}\nbindings={},{},{},{}\nvibration={}\nvolume={}\nvsync={}\n",
             self.resolution,self.frame_cap,self.fullscreen,self.deadzone_percent,self.look_deadzone_percent,
-            self.camera_sensitivity,self.invert_y,self.auto_camera,self.bindings[0],self.bindings[1],self.bindings[2],self.bindings[3],self.vibration,self.volume)
+            self.camera_sensitivity,self.invert_y,self.auto_camera,self.bindings[0],self.bindings[1],self.bindings[2],self.bindings[3],self.vibration,self.volume,self.vsync)
     }
     pub fn decode(text: &str) -> Self {
         let mut s = Self::default();
@@ -141,6 +146,11 @@ impl Settings {
                 "vibration" => {
                     if let Ok(v) = value.parse() {
                         s.vibration = v;
+                    }
+                }
+                "vsync" => {
+                    if let Ok(v) = value.parse() {
+                        s.vsync = v;
                     }
                 }
                 "volume" => {

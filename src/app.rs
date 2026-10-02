@@ -393,10 +393,13 @@ impl Game {
                     let (w, h) = self.settings.size();
                     window::set_window_size(w, h);
                 }
-                self.menu.status = if self.settings.save().is_ok() {
-                    "APPLIED AND SAVED".into()
-                } else {
+                let saved = self.settings.save().is_ok();
+                self.menu.status = if !saved {
                     "APPLIED / COULD NOT SAVE SETTINGS".into()
+                } else if self.settings.vsync != self.menu.vsync_at_launch {
+                    "SAVED / RESTART TO CHANGE VSYNC".into()
+                } else {
+                    "APPLIED AND SAVED".into()
                 };
             }
         }
@@ -913,7 +916,9 @@ impl Game {
 
 impl EventHandler for Game {
     fn update(&mut self) {
-        let elapsed = self.pacer.begin(self.settings.cap());
+        let elapsed = self
+            .pacer
+            .begin(self.settings.cap(), self.menu.vsync_at_launch);
         if self.frames > 0 && elapsed > 0.0001 {
             self.fps = if self.frames == 1 {
                 1. / elapsed
@@ -1080,7 +1085,8 @@ impl EventHandler for Game {
             if let Some(row) = self.menu.row_at(ux, uy) {
                 self.menu.selected = row;
                 let editable = match self.menu.screen {
-                    Some(Screen::Options | Screen::Camera) => row < 3,
+                    Some(Screen::Options) => row < 4,
+                    Some(Screen::Camera) => row < 3,
                     Some(Screen::Controller) => row < 7,
                     Some(Screen::Audio) => row == 0,
                     _ => false,

@@ -57,9 +57,9 @@ fixed, violet saves checkpoints. Lifts and shuttles carry momentum into jumps.
 LANDSCAPE.md, MOVEMENT.md and COURSE.md describe regions, rules and techniques.
 
 OPTIONS
-Default: 1280x720, 60 FPS cap, windowed. F2 opens options; Apply and Save commits.
-Choose render resolution, FPS cap, fullscreen, camera/controller settings or
-sound volume. Physics stays at 120 Hz; rendering interpolates between updates.
+Default: 1280x720, VSync on, 240 FPS safety cap, windowed. F2 opens options;
+Apply and Save commits. Choose render resolution, FPS cap, fullscreen, VSync
+(applies at next start), camera/controller settings or sound volume. Physics stays at 120 Hz; rendering interpolates between updates.
 Preferences live in the XDG configuration directory under Rust3D/stride-options.cfg
 (normally ~/.config/Rust3D/stride-options.cfg).
 
