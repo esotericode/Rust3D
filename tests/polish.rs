@@ -182,6 +182,32 @@ fn slide_recovers_without_input_and_dive_can_be_used_again() {
     assert_eq!(p.dives, 2);
 }
 #[test]
+fn slides_carve_gentle_turns_without_losing_extra_speed() {
+    let w = floor();
+    let mut p = player(Vec3::ZERO);
+    p.motion = Move::Slide;
+    p.velocity = vec3(0., 0., -20.);
+    for _ in 0..60 {
+        p.step(
+            Input {
+                movement: Vec2::X,
+                sprint: true,
+                ..Default::default()
+            },
+            0.,
+            &w,
+            FIXED_DT,
+        );
+    }
+    assert_eq!(p.motion, Move::Slide);
+    let turned = p.velocity.x.atan2(-p.velocity.z).to_degrees();
+    assert!(
+        turned > 15. && turned < 40.,
+        "slide turned {turned} degrees"
+    );
+    assert!((p.speed() - (20. - 2.8 * 0.5)).abs() < 0.2, "{p:?}");
+}
+#[test]
 fn slide_cannot_roll_out_through_a_low_ceiling_and_can_crawl_out() {
     let mut w = floor();
     let mut p = player(Vec3::ZERO);

@@ -408,7 +408,10 @@ impl Player {
             let slowed = if !self.can_stand(world) && strength > 0. {
                 horizontal + (wish * 3. * strength - horizontal).clamp_length_max(20. * dt)
             } else {
-                horizontal - horizontal.clamp_length_max(2.8 * dt)
+                // Belly slides carve gentle arcs, wider at speed, so long
+                // downhill slides held with Sprint can still be steered.
+                let carved = steer(horizontal, wish, 1.6 * strength, dt);
+                carved - carved.clamp_length_max(2.8 * dt)
             };
             self.velocity.x = slowed.x;
             self.velocity.z = slowed.z;
