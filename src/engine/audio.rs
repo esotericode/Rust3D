@@ -1,7 +1,7 @@
 //! Small procedural sound mixer. CPAL only supplies the native output device.
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
 };
 
@@ -27,12 +27,26 @@ impl Cue {
             Self::Beacon => 0.3,
         }
     }
+    /// Relative pitch spread, so repeated footsteps and landings do not sound
+    /// mechanically identical. The beacon chime keeps its exact notes.
+    fn pitch_spread(self) -> f32 {
+        match self {
+            Self::Step => 0.14,
+            Self::Land => 0.10,
+            Self::Beacon => 0.,
+            _ => 0.05,
+        }
+    }
 }
 struct Voice {
     cue: Cue,
     time: f32,
     volume: f32,
     noise: u32,
+    pitch: f32,
+    /// Oscillator phase in cycles. Accumulating it keeps sweeps monotonic and
+    /// note changes click-free; `sin(t * f(t))` would bend sweeps through 0 Hz.
+    phase: f32,
 }
 impl Voice {
     fn sample(&mut self, dt: f32) -> f32 {
@@ -58,7 +72,8 @@ impl Voice {
                 0.,
             ),
         };
-        let tone = (t * frequency * std::f32::consts::TAU).sin();
+        let tone = (self.phase * std::f32::consts::TAU).sin();
+        self.phase = (self.phase + frequency * self.pitch * dt).fract();
         let envelope = (t / 0.005).min(1.) * (1. - progress).powi(2);
         self.time += dt;
         (tone * (1. - grain) + noise * grain) * envelope * self.volume * 0.3
@@ -84,6 +99,7 @@ pub struct Audio {
     stream: Option<cpal::Stream>,
     mixer: Arc<Mutex<Mixer>>,
     failed: Arc<AtomicBool>,
+    seed: AtomicU32,
 }
 impl Audio {
     pub fn new(enabled: bool) -> Self {
@@ -98,6 +114,7 @@ impl Audio {
             stream,
             mixer,
             failed,
+            seed: AtomicU32::new(0x2545_f491),
         }
     }
     fn open(mixer: Arc<Mutex<Mixer>>, failed: Arc<AtomicBool>) -> Option<cpal::Stream> {
@@ -147,13 +164,21 @@ impl Audio {
         if volume == 0 || !self.available() {
             return;
         }
+        let mut seed = self
+            .seed
+            .fetch_add(0x9e37_79b9, Ordering::Relaxed)
+            .wrapping_mul(0x85eb_ca6b);
+        seed ^= seed >> 13;
+        let unit = (seed >> 8) as f32 / 16_777_216.;
         if let Ok(mut mixer) = self.mixer.lock() {
             if mixer.voices.len() < 16 {
                 mixer.voices.push(Voice {
                     cue,
                     time: 0.,
                     volume: volume.min(100) as f32 / 100. * gain.clamp(0., 1.),
-                    noise: 0xace1,
+                    noise: seed | 1,
+                    pitch: 1. + (unit - 0.5) * cue.pitch_spread(),
+                    phase: 0.,
                 });
             }
         }
@@ -184,6 +209,8 @@ mod tests {
                     time: 0.,
                     volume: 1.,
                     noise: 1,
+                    pitch: 1.,
+                    phase: 0.,
                 }],
             };
             let mut peak = 0_f32;
@@ -193,6 +220,34 @@ mod tests {
                 peak = peak.max(value.abs());
             }
             assert!(peak > 0.01 && mixer.voices.is_empty());
+        }
+    }
+    #[test]
+    fn sweeps_stay_between_their_end_frequencies() {
+        for (cue, low, high) in [
+            (Cue::Jump, 300., 850.),
+            (Cue::Kick, 200., 650.),
+            (Cue::Dive, 150., 500.),
+            (Cue::Roll, 180., 360.),
+        ] {
+            let mut voice = Voice {
+                cue,
+                time: 0.,
+                volume: 1.,
+                noise: 1,
+                pitch: 1.,
+                phase: 0.,
+            };
+            let dt = 1. / 48000.;
+            while voice.time < cue.duration() {
+                let before = voice.phase;
+                voice.sample(dt);
+                let frequency = (voice.phase - before).rem_euclid(1.) / dt;
+                assert!(
+                    frequency > low - 1. && frequency < high + 1.,
+                    "{frequency} Hz outside {low}..{high}"
+                );
+            }
         }
     }
 }
