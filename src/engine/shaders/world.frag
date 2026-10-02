@@ -48,12 +48,23 @@ void main() {
     bool paint=style>2.5 && style<3.5;
     bool rubber=style>3.5 && style<4.5;
     bool terrain=style>4.5;
-    vec4 tex=texture2D(detail,uv*1.4);
-    float relief=paint?0.14:0.42;
-    relief*=1.0-smoothstep(12.0,45.0,distance_to_eye);
+    // Terrain spans kilometres, so its detail tile is three times coarser.
+    vec4 tex=texture2D(detail,uv*(terrain?0.45:1.4));
+    float relief=paint?0.14:(terrain?0.32:0.42);
+    relief*=1.0-smoothstep(10.0,terrain?32.0:45.0,distance_to_eye);
+    // Fine albedo grain fades with distance like the relief. Minified at
+    // grazing angles, a repeating tile otherwise reads as regular ripples.
+    float grain=1.0-smoothstep(15.0,80.0,distance_to_eye);
     if(!marking) {
         n=normalize(n+t*(tex.g*2.0-1.0)*relief+b*(tex.b*2.0-1.0)*relief);
-        base*=1.0+(tex.r-0.5)*(paint?0.20:0.65);
+        base*=1.0+(tex.r-0.5)*(paint?0.20:0.65)*grain;
+    }
+    if(terrain) {
+        // Broad, non-repeating-looking patches keep distant ground from
+        // flattening once the fine grain has faded.
+        float patches=texture2D(detail,uv*0.019+vec2(0.37,0.11)).r*0.6
+            +texture2D(detail,uv*0.0061+vec2(0.71,0.53)).r*0.4;
+        base*=mix(vec3(0.84,0.86,0.80),vec3(1.12,1.10,1.02),smoothstep(0.38,0.62,patches));
     }
     float roughness=paint?0.36:((rubber || terrain)?0.92:0.78);
     roughness=clamp(roughness+(tex.a-0.5)*0.2,0.22,0.96);
