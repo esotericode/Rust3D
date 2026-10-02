@@ -17,7 +17,7 @@ use stride::{
         FIXED_DT,
     },
     settings::{Settings, BUTTON_NAMES},
-    world::{World, CONCRETE, LEVEL_CENTER, LEVEL_SIZE, MINT, NAVY, ORANGE, SPAWN, TOWER},
+    world::{Ramp, World, CONCRETE, LEVEL_CENTER, LEVEL_SIZE, MINT, NAVY, ORANGE, SPAWN, TOWER},
 };
 
 pub struct Game {
@@ -1161,37 +1161,7 @@ fn build_scene(world: &World) -> Vec<Mesh> {
         }
     }
     for r in &world.ramps {
-        let a = r.min;
-        let b = r.max;
-        let p = [
-            vec3(a.x, a.y, b.z),
-            vec3(b.x, a.y, b.z),
-            vec3(b.x, b.y, a.z),
-            vec3(a.x, b.y, a.z),
-        ];
-        m.quad(p, ORANGE, 0.);
-        m.triangle(p[0], vec3(a.x, a.y, a.z), p[3], NAVY, 0.);
-        m.triangle(p[1], p[2], vec3(b.x, a.y, a.z), NAVY, 0.);
-        m.quad(
-            [vec3(a.x, a.y, a.z), vec3(b.x, a.y, a.z), p[2], p[3]],
-            NAVY,
-            0.,
-        );
-        for z in 0..8 {
-            let z = a.z + (b.z - a.z) * (z as f32 + 0.5) / 8.;
-            let y = r.height((a.x + b.x) * 0.5, z).unwrap() + 0.012;
-            let dy = (b.y - a.y) / (b.z - a.z) * 0.035;
-            m.quad(
-                [
-                    vec3(a.x + 0.3, y + dy, z - 0.035),
-                    vec3(a.x + 0.3, y - dy, z + 0.035),
-                    vec3(b.x - 0.3, y - dy, z + 0.035),
-                    vec3(b.x - 0.3, y + dy, z - 0.035),
-                ],
-                [0.95, 0.73, 0.51],
-                2.,
-            );
-        }
+        ramp_mesh(&mut m, r);
     }
     for (i, node) in world.course.nodes.iter().enumerate() {
         if let Surface::Fixed(_) = node.surface {
@@ -1275,6 +1245,60 @@ fn build_scene(world: &World) -> Vec<Mesh> {
     }
     meshes.push(m);
     meshes
+}
+
+/// A wedge with its stripes; sides extend down to the ramp's base.
+fn ramp_mesh(m: &mut Mesh, r: &Ramp) {
+    let a = r.min;
+    let b = r.max;
+    let base = r.base;
+    let p = [
+        vec3(a.x, a.y, b.z),
+        vec3(b.x, a.y, b.z),
+        vec3(b.x, b.y, a.z),
+        vec3(a.x, b.y, a.z),
+    ];
+    m.quad(p, ORANGE, 0.);
+    // Sides and back reach down to the base. Each quad starts with three
+    // non-collinear corners so its normal faces outward, even when the
+    // front corners coincide because the base equals the low edge.
+    m.quad(
+        [p[3], vec3(a.x, base, a.z), vec3(a.x, base, b.z), p[0]],
+        NAVY,
+        0.,
+    );
+    m.quad(
+        [vec3(b.x, base, a.z), p[2], p[1], vec3(b.x, base, b.z)],
+        NAVY,
+        0.,
+    );
+    m.quad(
+        [vec3(a.x, base, a.z), p[3], p[2], vec3(b.x, base, a.z)],
+        NAVY,
+        0.,
+    );
+    if base < a.y - 0.001 {
+        m.quad(
+            [vec3(a.x, base, b.z), vec3(b.x, base, b.z), p[1], p[0]],
+            NAVY,
+            0.,
+        );
+    }
+    for z in 0..8 {
+        let z = a.z + (b.z - a.z) * (z as f32 + 0.5) / 8.;
+        let y = r.height((a.x + b.x) * 0.5, z).unwrap() + 0.012;
+        let dy = (b.y - a.y) / (b.z - a.z) * 0.035;
+        m.quad(
+            [
+                vec3(a.x + 0.3, y + dy, z - 0.035),
+                vec3(a.x + 0.3, y - dy, z + 0.035),
+                vec3(b.x - 0.3, y - dy, z + 0.035),
+                vec3(b.x - 0.3, y + dy, z - 0.035),
+            ],
+            [0.95, 0.73, 0.51],
+            2.,
+        );
+    }
 }
 
 struct Dust {
@@ -1495,5 +1519,28 @@ mod graphics_budget_tests {
             .indices
             .iter()
             .all(|&i| (i as usize) < dynamic.vertices.len()));
+    }
+    #[test]
+    fn ramp_faces_point_outward_with_and_without_a_lowered_base() {
+        for base in [0., -3.] {
+            let mut ramp = Ramp::new(vec3(-2., 0., -5.), vec3(2., 3., 5.));
+            ramp.base = base;
+            let mut m = Mesh::default();
+            ramp_mesh(&mut m, &ramp);
+            // The wedge is convex, so every face must point away from a point inside it.
+            let inside = vec3(0., base + 0.5, -3.);
+            for t in m.indices.as_chunks::<3>().0 {
+                let v = t.map(|i| m.vertices[i as usize]);
+                let normal = Vec3::from_array(v[0].normal);
+                if normal == Vec3::ZERO {
+                    continue;
+                }
+                let centre = v.iter().map(|v| Vec3::from_array(v.pos)).sum::<Vec3>() / 3.;
+                assert!(
+                    normal.dot(centre - inside) > 0.,
+                    "inward face at {centre:?} with normal {normal:?} (base {base})"
+                );
+            }
+        }
     }
 }

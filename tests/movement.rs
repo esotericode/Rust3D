@@ -126,10 +126,8 @@ fn long_jump_clears_the_playground_gap() {
 #[test]
 fn ramp_can_be_walked_up_and_down() {
     let mut w = floor();
-    w.ramps.push(Ramp {
-        min: vec3(-3., 0., -8.),
-        max: vec3(3., 2., 0.),
-    });
+    w.ramps
+        .push(Ramp::new(vec3(-3., 0., -8.), vec3(3., 2., 0.)));
     let mut p = player(vec3(0., 0., 1.));
     steps(&mut p, &w, movement(0., 1., false), 145);
     assert!(p.pos.y > 1.4 && p.grounded, "{:?}", p.pos);

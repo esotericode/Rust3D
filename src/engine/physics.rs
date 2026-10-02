@@ -760,7 +760,7 @@ impl Player {
                     let x = self.pos.x.clamp(r.min.x, r.max.x);
                     let z = self.pos.z.clamp(r.min.z, r.max.z);
                     if horizontal_gap(self.pos, r.min, r.max).length_squared() < RADIUS * RADIUS
-                        && path_y + self.height() > r.min.y
+                        && path_y + self.height() > r.base
                         && r.height(x, z).is_some_and(|h| path_y + 0.25 < h)
                     {
                         self.push_circle(r.min, r.max, RADIUS);

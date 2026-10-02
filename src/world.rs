@@ -38,8 +38,18 @@ impl Solid {
 pub struct Ramp {
     pub min: Vec3,
     pub max: Vec3,
+    /// Bottom of the solid. The sloped surface starts at `min.y`; on uneven
+    /// terrain the sides extend down to `base` so the wedge never floats.
+    pub base: f32,
 }
 impl Ramp {
+    pub fn new(min: Vec3, max: Vec3) -> Self {
+        Self {
+            min,
+            max,
+            base: min.y,
+        }
+    }
     pub fn normal(&self) -> Vec3 {
         vec3(
             0.,
@@ -150,30 +160,12 @@ impl Default for World {
             course: Course::default(),
             time: 0.,
             ramps: vec![
-                Ramp {
-                    min: vec3(-11., 0., 1.),
-                    max: vec3(-5., 2., 9.),
-                },
-                Ramp {
-                    min: vec3(-2.5, 0., -12.5),
-                    max: vec3(2.5, 3., -3.5),
-                },
-                Ramp {
-                    min: vec3(28., 0., -18.),
-                    max: vec3(40., 4., 2.),
-                },
-                Ramp {
-                    min: vec3(-45., 0., -29.),
-                    max: vec3(-35., 3., -14.),
-                },
-                Ramp {
-                    min: vec3(25., 0., 15.),
-                    max: vec3(31., 2., 27.),
-                },
-                Ramp {
-                    min: vec3(-48., 0., 15.),
-                    max: vec3(-42., 2.5, 29.),
-                },
+                Ramp::new(vec3(-11., 0., 1.), vec3(-5., 2., 9.)),
+                Ramp::new(vec3(-2.5, 0., -12.5), vec3(2.5, 3., -3.5)),
+                Ramp::new(vec3(28., 0., -18.), vec3(40., 4., 2.)),
+                Ramp::new(vec3(-45., 0., -29.), vec3(-35., 3., -14.)),
+                Ramp::new(vec3(25., 0., 15.), vec3(31., 2., 27.)),
+                Ramp::new(vec3(-48., 0., 15.), vec3(-42., 2.5, 29.)),
             ],
             beacons: vec![
                 Beacon {
@@ -206,10 +198,9 @@ impl Default for World {
                 },
             ],
         };
-        world.ramps.push(Ramp {
-            min: vec3(48., 0., 36.),
-            max: vec3(64., 8., 61.),
-        });
+        world
+            .ramps
+            .push(Ramp::new(vec3(48., 0., 36.), vec3(64., 8., 61.)));
         // Broad ramp-and-block practice gardens occupy the newly opened yard,
         // clear of the overhead course and its fall corridors.
         for (x, z, h) in [
@@ -218,10 +209,9 @@ impl Default for World {
             (175., -70., 5.),
             (215., -120., 6.),
         ] {
-            world.ramps.push(Ramp {
-                min: vec3(x - 4., 0., z),
-                max: vec3(x + 4., h, z + 20.),
-            });
+            world
+                .ramps
+                .push(Ramp::new(vec3(x - 4., 0., z), vec3(x + 4., h, z + 20.)));
             world
                 .solids
                 .push(Solid::new(vec3(x, h * 0.5, z - 4.), vec3(8., h, 8.), NAVY));
@@ -292,10 +282,21 @@ impl World {
                 let length = rng.range(18., 38.);
                 let low = t.sample(x, z + length * 0.5).unwrap().0;
                 let high = t.sample(x, z - length * 0.5).unwrap().0.max(low) + rng.range(4., 10.);
-                self.ramps.push(Ramp {
-                    min: vec3(x - width * 0.5, low, z - length * 0.5),
-                    max: vec3(x + width * 0.5, high, z + length * 0.5),
-                });
+                let mut ramp = Ramp::new(
+                    vec3(x - width * 0.5, low, z - length * 0.5),
+                    vec3(x + width * 0.5, high, z + length * 0.5),
+                );
+                // Seat the wedge on the lowest ground beneath it. Sampling at
+                // most 2 m apart leaves no gap the 0.4 m margin cannot cover.
+                let (nx, nz) = ((width / 2.).ceil() as usize, (length / 2.).ceil() as usize);
+                for i in 0..=nx {
+                    for j in 0..=nz {
+                        let sx = ramp.min.x + width * i as f32 / nx as f32;
+                        let sz = ramp.min.z + length * j as f32 / nz as f32;
+                        ramp.base = ramp.base.min(t.sample(sx, sz).unwrap().0 - 0.4);
+                    }
+                }
+                self.ramps.push(ramp);
                 ramps += 1;
             } else {
                 break;

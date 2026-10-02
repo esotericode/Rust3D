@@ -91,6 +91,36 @@ fn landscape_is_sixteen_times_larger_seeded_and_has_clear_region_spawns() {
     }
 }
 #[test]
+fn highland_ramps_sit_on_the_terrain_without_open_undersides() {
+    let w = World::default();
+    let t = w.terrain.as_ref().unwrap();
+    for (i, r) in w.ramps.iter().enumerate() {
+        assert!(r.base <= r.min.y, "ramp {i} base above its low edge");
+        let mut x = r.min.x;
+        while x <= r.max.x {
+            let mut z = r.min.z;
+            while z <= r.max.z {
+                // Support is the terrain or a block top (the lab ramps stand
+                // on the courtyard slab, above the terrain beneath it).
+                let ground = w
+                    .solids
+                    .iter()
+                    .filter(|s| s.contains(vec3(x, s.max.y, z), 0.) && s.max.y <= r.base + 0.01)
+                    .map(|s| s.max.y)
+                    .chain(t.sample(x, z).map(|s| s.0))
+                    .fold(f32::NEG_INFINITY, f32::max);
+                assert!(
+                    ground >= r.base - 0.01,
+                    "ramp {i} floats {:.2} m above the ground at {x:.1}, {z:.1}",
+                    r.base - ground
+                );
+                z += 1.;
+            }
+            x += 1.;
+        }
+    }
+}
+#[test]
 fn terrain_does_not_pull_grounded_players_through_the_original_lab_or_blocks() {
     let w = World::default();
     let mut p = Player::default();

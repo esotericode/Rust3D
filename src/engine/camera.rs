@@ -111,7 +111,7 @@ impl Camera {
             let p = self.target + offset * t;
             if world.ramps.iter().any(|r| {
                 r.height(p.x, p.z)
-                    .is_some_and(|h| p.y <= h + 0.28 && p.y >= r.min.y - 0.28)
+                    .is_some_and(|h| p.y <= h + 0.28 && p.y >= r.base - 0.28)
             }) || world
                 .terrain
                 .as_ref()
