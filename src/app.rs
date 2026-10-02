@@ -30,7 +30,6 @@ pub struct Game {
     audio: Audio,
     dust: Vec<Dust>,
     landing_squash: f32,
-    step_distance: f32,
     camera: Camera,
     keys: HashSet<KeyCode>,
     controller: Controller,
@@ -88,7 +87,6 @@ impl Game {
             audio: Audio::new(!args.iter().any(|s| s == "--smoke-test")),
             dust: Vec::new(),
             landing_squash: 0.,
-            step_distance: 0.,
             camera: Camera::new(SPAWN),
             keys: HashSet::new(),
             controller: Controller::default(),
@@ -242,7 +240,6 @@ impl Game {
         self.camera.update(self.player.pos, &self.world, 1.);
         self.sync_render();
         self.dust.clear();
-        self.step_distance = 0.;
         self.toast = 5.;
         self.toast_text = if let Some(s) = practice {
             format!("PRACTICE {} / {}", s + 1, SECTIONS[s].0)
@@ -268,7 +265,6 @@ impl Game {
         self.camera.update(self.player.pos, &self.world, 1.);
         self.sync_render();
         self.dust.clear();
-        self.step_distance = 0.;
         self.elapsed = 0.;
         self.started = false;
         self.collected = 0;
@@ -294,7 +290,6 @@ impl Game {
         }
         self.sync_render();
         self.dust.clear();
-        self.step_distance = 0.;
         self.toast_text = "BACK AT YOUR CHECKPOINT / KEEP GOING".into();
         self.toast = 3.;
     }
@@ -308,7 +303,6 @@ impl Game {
         self.camera = Camera::new(SPAWN);
         self.sync_render();
         self.dust.clear();
-        self.step_distance = 0.;
         self.collected = 0;
         self.elapsed = 0.;
         self.started = false;
@@ -601,6 +595,14 @@ impl Game {
         } else {
             None
         };
+        // A foot lands as each leg swing peaks, every half cycle of the phase.
+        // Skipping the landing tick avoids doubling the landing sound.
+        let footfall = |phase: f32| (phase / std::f32::consts::PI - 0.5).floor();
+        let step = self.player.grounded
+            && prev.grounded
+            && self.player.speed() > 1.
+            && self.player.motion == Move::Normal
+            && footfall(self.player.animation_phase) != footfall(prev.animation_phase);
         if let Some(cue) = cue {
             self.audio.play(cue, self.settings.volume, 0.9);
             self.controller.rumble(self.settings.vibration, 9000, 18000);
@@ -611,15 +613,9 @@ impl Game {
                 self.burst(5);
             }
         }
-        if self.player.grounded && self.player.speed() > 1. && self.player.motion == Move::Normal {
-            self.step_distance += self.player.speed() * FIXED_DT;
-            if self.step_distance > 1.8 {
-                self.step_distance -= 1.8;
-                self.audio.play(Cue::Step, self.settings.volume, 0.45);
-                self.burst(2);
-            }
-        } else {
-            self.step_distance = 0.;
+        if step {
+            self.audio.play(Cue::Step, self.settings.volume, 0.45);
+            self.burst(2);
         }
         self.landing_squash = (self.landing_squash - FIXED_DT * 1.4).max(0.);
         for d in &mut self.dust {

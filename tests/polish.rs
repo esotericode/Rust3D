@@ -240,6 +240,35 @@ fn capsule_passes_square_corner_clearance_and_reports_diagonal_normals() {
     assert!((p.wall_normal.length() - 1.).abs() < 0.001);
 }
 #[test]
+fn leg_cadence_holds_steady_at_high_speed() {
+    let w = floor();
+    let footfalls_per_second = |speed: f32| {
+        let mut p = player(Vec3::ZERO);
+        p.velocity = vec3(0., 0., -speed);
+        let start = p.animation_phase;
+        for _ in 0..60 {
+            p.step(
+                Input {
+                    movement: Vec2::Y,
+                    sprint: true,
+                    ..Default::default()
+                },
+                0.,
+                &w,
+                FIXED_DT,
+            );
+        }
+        (p.animation_phase - start) / std::f32::consts::PI / 0.5
+    };
+    let sprint = footfalls_per_second(10.5);
+    let fast = footfalls_per_second(50.);
+    assert!(
+        sprint > 5.5 && sprint < 7.,
+        "{sprint} footfalls/s at sprint"
+    );
+    assert!(fast > sprint && fast < 9., "{fast} footfalls/s at 50 m/s");
+}
+#[test]
 fn rendering_interpolates_without_changing_simulation_and_wraps_facing() {
     let previous = player(Vec3::ZERO);
     let mut current = previous.clone();

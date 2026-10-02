@@ -600,7 +600,9 @@ impl Player {
         } else if self.velocity.y < 0. && self.wall_grace <= 0. {
             self.action = "AIRBORNE";
         }
-        self.animation_phase += self.speed() * dt * 2.6;
+        // About 6 footfalls a second at sprint speed. Above 14 m/s the cadence
+        // holds and strides lengthen, so legs and footsteps never blur.
+        self.animation_phase += self.speed().min(14.) * dt * 1.9;
         self.peak_speed = self.peak_speed.max(self.speed());
         if self.gain_time <= 0. && self.grounded && self.motion == Move::Normal {
             self.chain = 0;
