@@ -1,30 +1,49 @@
-# Stride 0.6.0 — Highlands and Momentum
+# Stride 0.7.0 — Movement Feel and VSync
 
 Download **Stride-Windows.zip**, extract it, open **Stride-Windows**, then
-double-click **Stride.exe**. No installation or Rust toolchain needed.
+double-click **Stride.exe**. On Linux, download **Stride-Linux-x86_64.tar.gz**,
+extract it and run `Stride-Linux/Play.sh`. No installation or Rust toolchain
+needed.
 
-## New in this build
+## Changed controls
 
-- A **1440 × 1680 m** landscape, sixteen times the previous map's area, with
-  rolling hills, broad open spaces and four mountain masses, with peaks above 200 m.
-- **180 additional blocks and 40 additional ramps**, placed with a fixed random
-  seed while keeping the original lab, Skyway and an open speed lane clear.
-- Five region starting points in **Pause → Highlands / Momentum Routes**.
-- Slope following, downhill acceleration, uphill resistance and steep-face
-  sliding. Uphill jumps, dives and rollouts retain upward slope momentum.
-- Long-jump, dive and rollout chains build speed with diminishing gains and
-  **no hard horizontal speed cap**. Landings preserve speed; lighter analog or
-  opposite input brakes. Hold Sprint to extend a slide.
-- Smooth camera pullback/FOV at speed; HUD peak speed, chain, coordinates and
-  slope feedback. Distance-based collision substeps protect fast travel.
+- **Long jump is now Crouch + Jump while moving**: Ctrl + Space, or LT + A on a
+  controller. Crouch is a new, remappable binding; saved 0.6 preferences gain
+  it on LT, or on the first free button.
+- **Jumping while sprinting keeps its full height** and your speed. Before, any
+  sprinting jump was a low long jump.
 
-Includes the previous textured lighting/soft shadow pass, controller support
-with 10% default stick deadzones, remapping, display/frame-cap options, and the
-eight-section Skyway course with 46 components and 16 moving platforms.
+## Movement
+
+- **Wall slides:** hold toward a wall in the air to slide down it at a steady
+  speed, then press Jump at any point to kick off. Alternate walls to climb.
+- **Crest airtime:** fast enough over a crest that falls away faster than
+  gravity can follow, you leave the ground on a natural arc.
+- **Smooth analog braking:** how much earned speed you keep now blends with
+  stick strength and turn angle. A slightly lighter push no longer drops you
+  from full speed to a walk, and pressing only a strafe key at speed no longer
+  brakes like reversing.
+- **Steerable belly slides**, and a rollout that lands early on raised ground
+  no longer locks out your next jump.
+- Steep faces can no longer be climbed by mashing jump, a mid-air dive no
+  longer cancels a fast fall, and the character no longer sinks into block
+  edges.
+
+## Display, sound and presentation
+
+- **VSync option, on by default**, to prevent tearing. Changes apply the next
+  time the game starts. The default frame cap is now 240 FPS, which only binds
+  if a driver forces VSync off.
+- 25 Highlands ramps no longer float above the slopes, and ramp walls are lit
+  correctly. Terrain and mountain rock lose their repeating ripple pattern.
+- Footsteps follow the legs and no longer buzz at high speed. Wall-kick and
+  dive sounds no longer warble, and the beacon chime no longer clicks.
+- The camera keeps you in frame during long falls.
+- HUD text needs a third of the geometry, and `, ! ?` now display.
 
 **Controls:** WASD or left stick moves; Shift or RT/R2 sprints; Space or A/Cross
-jumps; Sprint + Jump long jumps; F or X/Square dives; Jump/Dive on the landing
-slide rolls out; Esc/Start opens the menu. Reset actions remain menu-only.
+jumps; Ctrl or LT/L2 + Jump long jumps; F or X/Square dives; Jump/Dive on the
+landing slide rolls out; hold into a wall to slide; Esc/Start opens the menu.
 
 The ZIP includes PLAY.txt, LANDSCAPE.md, MOVEMENT.md, COURSE.md and licenses.
 MOVEMENT.md records the design references and tuning choices.
@@ -33,12 +52,11 @@ MOVEMENT.md records the design references and tuning choices.
 
 Release publishing waits for Linux formatting, strict clippy, all tests and
 actual Mesa rendering checks, plus Windows tests and a standalone static-CRT
-release build. The test suite includes full Skyway traversal at two platform
-timings, slope and speed-chain checks, uphill launches, analog precision braking
-and thin-wall collision at 300 m/s. Movement runs at a fixed 120 Hz.
+release build. The test suite traverses the full Skyway course at two platform
+timings using crouch long jumps, and covers crest airtime, wall slides,
+steep-face hops, ledge slips, analog smoothness, ramp grounding and sound
+sweeps. Movement runs at a fixed 120 Hz.
 
-This is a playable prototype for 64-bit Windows 10/11 with an OpenGL-capable
-graphics driver. Terrain uses heightfield collision and ground adhesion;
-arbitrary mesh collision, overhangs and curvature-based crest airtime remain
-future work. Hands-on controller and Windows playtesting is still useful for
-the final feel adjustments. SHA256.txt accompanies the Windows download.
+This is a playable prototype for 64-bit Windows 10/11 and Linux x86_64 with an
+OpenGL-capable graphics driver. Hands-on controller playtesting is still useful
+for the final feel adjustments. SHA256.txt accompanies the Windows download.

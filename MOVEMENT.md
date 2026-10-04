@@ -1,4 +1,4 @@
-# Movement design / version 0.6
+# Movement design / version 0.7
 
 Stride aims for readable, responsive 3D platforming at low speed and deliberate,
 flowing traversal once the player builds momentum. The controls should explain

@@ -93,7 +93,13 @@ jobs:
         run: |
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           test "$GITHUB_REF_NAME" = "release/v$version"
+          # The title is the notes' heading, which must name this version.
+          title=$(head -n 1 RELEASE_NOTES.md | sed 's/^# *//')
+          case "$title" in
+            *"$version"*) ;;
+            *) echo "RELEASE_NOTES.md heading must name $version: $title"; exit 1 ;;
+          esac
           gh release create "v$version" \
             release-assets/Stride-Windows.zip release-assets/SHA256.txt \
-            --target "$GITHUB_SHA" --title "Stride $version - Highlands and Momentum" \
+            --target "$GITHUB_SHA" --title "$title" \
             --notes-file RELEASE_NOTES.md --latest

@@ -109,7 +109,12 @@ impl Game {
             collected: 0,
             checkpoint: SPAWN,
             toast: 7.,
-            toast_text: "STRIDE 0.6 / HIGHLANDS AND MOMENTUM".into(),
+            toast_text: concat!(
+                "STRIDE ",
+                env!("CARGO_PKG_VERSION"),
+                " / LONG JUMP IS NOW CROUCH + JUMP"
+            )
+            .into(),
             best: None,
             course_run: None,
             course_best: None,
@@ -660,7 +665,11 @@ impl Game {
         ui.text(
             44.,
             110.,
-            &format!("FPS {:.0} / SIM 120 HZ / V0.6", self.fps),
+            &format!(
+                "FPS {:.0} / SIM 120 HZ / V{}",
+                self.fps,
+                env!("CARGO_PKG_VERSION")
+            ),
             1.,
             MINT,
         );

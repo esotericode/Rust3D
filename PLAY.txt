@@ -1,5 +1,11 @@
 STRIDE / RUST3D MOVEMENT LAB
-Version 0.6.0
+Version 0.7.0
+
+NEW IN 0.7
+Long jump is now Crouch + Jump while moving: Ctrl + Space, or LT + A.
+Jumping while sprinting keeps its full height and your speed.
+Hold toward a wall in the air to slide down it; press Jump to kick off.
+VSync is on by default (F2 > VSync; changes apply at the next start).
 
 GET GOING
 Extract the ZIP, open Stride-Windows, and double-click Stride.exe.

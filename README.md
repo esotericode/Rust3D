@@ -1,8 +1,11 @@
 # Stride / Rust3D
 
 A custom Rust 3D engine and third-person movement playground. Run, jump,
-long jump, dive, roll out, and climb by kicking between walls. Version 0.6 adds
-the **1440 x 1680 metre Highlands**, sixteen times the previous map's area,
+long jump, dive, roll out, wall slide, and climb by kicking between walls.
+Version 0.7 reworks the movement feel: the long jump moves to **Crouch + Jump**
+(Ctrl or LT), sprint jumps keep their full height, held wall slides allow a
+kick at any point, fast runs fly off crests, and **VSync** is on by default.
+Version 0.6 added the **1440 x 1680 metre Highlands**, sixteen times the previous map's area,
 with rolling hills, open speed lanes, mountains above 200 m and seeded blocks
 and ramps. Slope gravity and uncapped, diminishing movement gains let you build
 momentum through long jumps, dives and rollouts. **Skyway** offers eight
@@ -240,7 +243,8 @@ playtesting remain hardware checks.
 All game geometry and UI glyphs are generated in code.
 
 To publish a release, push a branch named `release/v<package-version>` containing
-the reviewed build and RELEASE_NOTES.md. Its build workflow publishes that
+the reviewed build and RELEASE_NOTES.md, whose first heading names that version
+and becomes the release title. Its build workflow publishes that
 exact commit and Windows package only after the Linux and Windows jobs pass.
 The publish job has write access to repository contents; other jobs are read-only.
 
